@@ -1,23 +1,51 @@
+"""Module handler provides the implementation of the vlogs handler."""
+
 import io
 import json
 import logging
 import queue
-import sys
 import threading
 import traceback
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 import requests
 
+from . import log
+
+_VLOGS_INSERT_PATH = "insert/jsonline"
+_VLOGS_PARAMS = "_stream_fields=stream&_time_field=timestamp&_msg_field=message"
+
 
 class VictoriaLogsHandler(logging.Handler):
-    def __init__(self, url: str):
+    """VictoriaLogsHandler dispatches log events to a Victoria Logs server.
+
+    Events are sent asynchronously for best performance.
+    Events are sent without delay.
+    Events are batched together to reduce the amount of requests to the vlogs server.
+    """
+
+    def __init__(
+        self,
+        url: str,
+        request_timeout: float = 5.0,
+        suspend_worker_start: bool = False,
+    ):
         super().__init__()
-        self.url = url
+        self._url = url
         self._queue = queue.Queue(-1)
+        self._request_timeout = request_timeout
 
         # Start background worker
         self._worker_thread = threading.Thread(target=self._worker, daemon=True)
+        if not suspend_worker_start:
+            self.start()
+
+    def start(self):
+        """Starts the worker. This should only be called when the worker
+        has not already been started at instantiation.
+
+        Trying to start an already running worker will raise a RuntimeError exception.
+        """
         self._worker_thread.start()
 
     def emit(self, record: logging.LogRecord) -> None:
@@ -25,20 +53,12 @@ class VictoriaLogsHandler(logging.Handler):
             log_entry = self.format_log_entry(record)
             self._queue.put(log_entry)
         except Exception as ex:
-            _print_exception("emitting record", ex)
+            log.exception("emitting record", ex)
             self.handleError(record)
 
     def format_log_entry(self, record: logging.LogRecord) -> Dict[str, Any]:
-        if record.name == "__main__":
-            stream = "(undefined)"
-        else:
-            s = record.name.split(".")
-            if len(s) > 1:
-                stream = s[0]
-            else:
-                stream = record.name
         entry = {
-            "stream": stream,
+            "stream": _calc_stream_from_record(record),
             "timestamp": record.created,
             "logger": record.name,
             "level": record.levelname,
@@ -57,33 +77,37 @@ class VictoriaLogsHandler(logging.Handler):
 
     def _worker(self):
         while True:
-            record = self._queue.get()
-            self._send(record)
+            entries: List[Dict[str, Any]] = []
 
-    def _send(self, entry: Dict[str, Any]):
-        try:
-            data = json.dumps(entry)
-        except Exception as ex:
-            _print_exception("convert entry to JSON", ex, entry=entry)
-            return
+            entries.append(self._queue.get())
+            while True:
+                try:
+                    entries.append(self._queue.get_nowait())
+                except queue.Empty:
+                    break
 
+            self._send(entries)
+
+    def _send(self, entries: List[Dict[str, Any]]):
+        lines = []
+        for entry in entries:
+            try:
+                lines.append(json.dumps(entry))
+            except Exception as ex:
+                log.exception("convert entry to JSON", ex, entry=entry)
+                continue
+
+        data = "\n".join(lines)
         try:
             response = requests.post(
-                f"{self.url}/insert/jsonline?_stream_fields=stream&_time_field=timestamp&_msg_field=message",
+                f"{self._url}/{_VLOGS_INSERT_PATH}?{_VLOGS_PARAMS}",
                 data=data,
                 headers={"Content-Type": "application/stream+json"},
-                timeout=5,
+                timeout=self._request_timeout,
             )
             response.raise_for_status()
         except Exception as ex:
-            _print_exception("send entry", ex)
-
-
-def _print_exception(context: str, ex: Exception, **extras):
-    print(
-        f"ERROR: VictoriaLogsHandler: {context}: {ex} {extras}",
-        file=sys.stderr,
-    )
+            log.exception("send entry", ex)
 
 
 def _format_exception(ei):
@@ -105,48 +129,13 @@ def _format_exception(ei):
     return s
 
 
-# class HTTPJsonHandler(logging.Handler):
-#     def __init__(self, url):
-#         super().__init__()
-#         self.url = url
-
-#     def emit(self, record):
-#         log_entry = self.format(record)
-
-#         try:
-#             response = requests.post(
-#                 f"{self.url}/insert/jsonline?_stream_fields=stream&_time_field=timestamp&_msg_field=message",
-#                 data=log_entry,
-#                 headers={"Content-Type": "application/stream+json"},
-#                 timeout=5,
-#             )
-#             response.raise_for_status()
-#         except Exception:
-#             print(
-#                 f"ERROR: HTTPJsonHandler failed to send record to {self.url}: "
-#                 f"{response.status_code} {response.text}",
-#                 file=sys.stderr,
-#             )
-#             # Avoid crashing the app if the logging endpoint is down
-#             self.handleError(record)
-
-
-# class JsonFormatter(logging.Formatter):
-#     def format(self, record):
-#         stream = ""
-#         s = record.name.split(".")
-#         if len(s) > 1:
-#             stream = s[0]
-#         else:
-#             stream = record.name
-#         log_data = {
-#             "timestamp": record.created,
-#             "level": record.levelname,
-#             "logger": record.name,
-#             "stream": stream,
-#             "message": record.getMessage(),
-#         }
-#         if record.exc_info:
-#             log_data["exception"] = self.formatException(record.exc_info)
-
-#         return json.dumps(log_data)
+def _calc_stream_from_record(record: logging.LogRecord):
+    if record.name == "__main__":
+        stream = "(undefined)"
+    else:
+        s = record.name.split(".")
+        if len(s) > 1:
+            stream = s[0]
+        else:
+            stream = record.name
+    return stream
