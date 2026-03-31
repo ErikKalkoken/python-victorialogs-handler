@@ -1,0 +1,28 @@
+[build-system]
+requires = ["flit_core >=3.11,<4"]
+build-backend = "flit_core.buildapi"
+
+[project]
+authors = [{ name = "Erik Kalkoken", email = "kalkoken87@gmail.com" }]
+dynamic = ["version", "description"]
+license = "MIT"
+license-files = ["LICENSE"]
+name = "victorialogs-handler"
+readme = "README.md"
+classifiers = [
+    "Environment :: Web Environment",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+    "Topic :: System :: Logging",
+]
+
+[project.urls]
+Home = "https://github.com/ErikKalkoken/evebuddy"
+
+[tool.flit.module]
+name = "vlogs_handler"
+
+[tool.isort]
+profile = "black"
+multi_line_output = 3
