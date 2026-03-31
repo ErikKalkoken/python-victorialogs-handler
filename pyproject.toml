@@ -24,7 +24,7 @@ classifiers = [
 dependencies = ["requests"]
 
 [project.urls]
-Home = "https://github.com/ErikKalkoken/evebuddy"
+Home = "https://github.com/ErikKalkoken/python-victorialogs-handler"
 
 [project.optional-dependencies]
 test = ["requests-mock", "coverage"]
