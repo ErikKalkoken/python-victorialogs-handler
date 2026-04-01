@@ -1,5 +1,6 @@
 """Module handler provides the implementation of the vlogs handler."""
 
+import datetime as dt
 import io
 import json
 import logging
@@ -14,6 +15,31 @@ from . import log
 
 _VLOGS_INSERT_PATH = "insert/jsonline"
 _VLOGS_PARAMS = "_stream_fields=stream&_time_field=timestamp&_msg_field=message"
+
+
+_STANDARD_ATTRS = {
+    "args",
+    "created",
+    "exc_info",
+    "exc_text",
+    "filename",
+    "funcName",
+    "levelname",
+    "levelno",
+    "lineno",
+    "message",
+    "module",
+    "msecs",
+    "msg",
+    "name",
+    "pathname",
+    "process",
+    "processName",
+    "relativeCreated",
+    "stack_info",
+    "thread",
+    "threadName",
+}
 
 
 class VictoriaLogsHandler(logging.Handler):
@@ -73,6 +99,11 @@ class VictoriaLogsHandler(logging.Handler):
         }
         if record.exc_info:
             entry["exception"] = _format_exception(record.exc_info)
+
+        for k, v in record.__dict__.items():
+            if k not in _STANDARD_ATTRS:
+                entry[k] = v
+
         return entry
 
     def _worker(self):
@@ -92,7 +123,8 @@ class VictoriaLogsHandler(logging.Handler):
         lines = []
         for entry in entries:
             try:
-                lines.append(json.dumps(entry))
+                data = json.dumps(entry, cls=JSONEncoderPlus)
+                lines.append(data)
             except Exception as ex:
                 log.exception("convert entry to JSON", ex, entry=entry)
                 continue
@@ -139,3 +171,24 @@ def _calc_stream_from_record(record: logging.LogRecord):
         else:
             stream = record.name
     return stream
+
+
+class JSONEncoderPlus(json.JSONEncoder):
+    """JSONEncoderPlus is an improved encoder that can convert dates and does not break.
+
+    Instead of breaking it will return a string representation
+    for unserializable fields.
+    """
+
+    def default(self, obj):
+        if isinstance(obj, (dt.datetime, dt.date)):
+            return obj.isoformat()
+
+        if isinstance(obj, set):
+            return list(obj)
+
+        try:
+            return super().default(obj)
+        except TypeError:
+            # If we can't serialize it, return None or a string representation
+            return str(obj)

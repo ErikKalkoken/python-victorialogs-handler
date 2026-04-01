@@ -1,2 +1,3 @@
-test:
-	python -m unittest discover
+coverage:
+	coverage run -m unittest discover tests/
+	coverage report -m
