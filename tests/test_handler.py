@@ -7,7 +7,7 @@ from threading import Event
 import requests_mock
 
 from vlogs_handler import VictoriaLogsHandler
-from vlogs_handler.handler import JSONEncoderPlus
+from vlogs_handler.handler import _JSONEncoderPlus
 
 
 @requests_mock.Mocker()
@@ -48,6 +48,7 @@ class TestVictoriaLogsHandler(unittest.TestCase):
         self.assertEqual(got["level"], "INFO")
         self.assertEqual(got["logger"], "test_logger")
         self.assertEqual(got["message"], "Alpha")
+        self.assertNotIn("exception", got)
 
     def test_handler_should_send_log_with_extras(self, m: requests_mock.Mocker):
         # given
@@ -97,6 +98,7 @@ class TestVictoriaLogsHandler(unittest.TestCase):
         self.assertEqual(got["level"], "ERROR")
         self.assertEqual(got["logger"], "test_logger")
         self.assertEqual(got["message"], "Bravo")
+        self.assertEqual("ZeroDivisionError", got["exception_name"])
         self.assertIn("ZeroDivisionError", got["exception"])
 
 
@@ -157,7 +159,7 @@ class TestJSONEncoderPlus(unittest.TestCase):
 
         my_date = dt.datetime(2026, 1, 11, 12, 15, 42, 99, tzinfo=dt.timezone.utc)
         data = {
-            "class": JSONEncoderPlus,
+            "class": _JSONEncoderPlus,
             "date": my_date.date(),
             "datetime": my_date,
             "float": 1.23,
@@ -168,11 +170,11 @@ class TestJSONEncoderPlus(unittest.TestCase):
         }
 
         # when
-        got = json.loads(json.dumps(data, cls=JSONEncoderPlus))
+        got = json.loads(json.dumps(data, cls=_JSONEncoderPlus))
 
         # then
         self.assertEqual(
-            got["class"], "<class 'vlogs_handler.handler.JSONEncoderPlus'>"
+            got["class"], "<class 'vlogs_handler.handler._JSONEncoderPlus'>"
         )
         self.assertEqual(got["date"], "2026-01-11")
         self.assertEqual(got["datetime"], "2026-01-11T12:15:42.000099+00:00")

@@ -7,7 +7,7 @@ import logging
 import queue
 import threading
 import traceback
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 import requests
 
@@ -19,6 +19,7 @@ _VLOGS_PARAMS = "_stream_fields=stream&_time_field=timestamp&_msg_field=message"
 
 _STANDARD_ATTRS = {
     "args",
+    "asctime",
     "created",
     "exc_info",
     "exc_text",
@@ -37,18 +38,14 @@ _STANDARD_ATTRS = {
     "processName",
     "relativeCreated",
     "stack_info",
+    "taskName",
     "thread",
     "threadName",
 }
 
 
 class VictoriaLogsHandler(logging.Handler):
-    """VictoriaLogsHandler dispatches log events to a Victoria Logs server.
-
-    Events are sent asynchronously for best performance.
-    Events are sent without delay.
-    Events are batched together to reduce the amount of requests to the vlogs server.
-    """
+    """VictoriaLogsHandler dispatches log events to a Victoria Logs server."""
 
     def __init__(
         self,
@@ -98,7 +95,9 @@ class VictoriaLogsHandler(logging.Handler):
             "process_name": record.processName,
         }
         if record.exc_info:
-            entry["exception"] = _format_exception(record.exc_info)
+            entry["exception_name"], entry["exception"] = _format_exception(
+                record.exc_info
+            )
 
         for k, v in record.__dict__.items():
             if k not in _STANDARD_ATTRS:
@@ -123,7 +122,7 @@ class VictoriaLogsHandler(logging.Handler):
         lines = []
         for entry in entries:
             try:
-                data = json.dumps(entry, cls=JSONEncoderPlus)
+                data = json.dumps(entry, cls=_JSONEncoderPlus)
                 lines.append(data)
             except Exception as ex:
                 log.exception("convert entry to JSON", ex, entry=entry)
@@ -142,14 +141,15 @@ class VictoriaLogsHandler(logging.Handler):
             log.exception("send entry", ex)
 
 
-def _format_exception(ei):
+def _format_exception(ei) -> Tuple[str, str]:
     """
-    Format and return the specified exception information as a string.
+    Format and return the name of the exception
+    and specified exception information as strings.
 
     This default implementation just uses
     traceback.print_exception()
 
-    Source: logging.Formatter.formatException()
+    Based on: logging.Formatter.formatException()
     """
     sio = io.StringIO()
     tb = ei[2]
@@ -158,7 +158,9 @@ def _format_exception(ei):
     sio.close()
     if s[-1:] == "\n":
         s = s[:-1]
-    return s
+
+    name = ei[0].__name__ if ei[0] is not None else ""
+    return name, s
 
 
 def _calc_stream_from_record(record: logging.LogRecord):
@@ -173,7 +175,7 @@ def _calc_stream_from_record(record: logging.LogRecord):
     return stream
 
 
-class JSONEncoderPlus(json.JSONEncoder):
+class _JSONEncoderPlus(json.JSONEncoder):
     """JSONEncoderPlus is an improved encoder that can convert dates and does not break.
 
     Instead of breaking it will return a string representation
