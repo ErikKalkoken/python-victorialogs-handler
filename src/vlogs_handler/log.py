@@ -4,16 +4,23 @@ import sys
 from typing import Optional
 
 
-def info(context: str, **extras):
-    _log("INFO", context, **extras)
+def info(message: str, **extras):
+    """Log an info message."""
+    _log("INFO", message, **extras)
 
 
-def exception(context: str, ex: Exception, **extras):
-    _log("ERROR", context, ex, **extras)
+def error(message: str, **extras):
+    """Log an error message."""
+    _log("ERROR", message, **extras)
 
 
-def _log(level: str, context: str, ex: Optional[Exception] = None, **extras):
-    text = f"{level}: VictoriaLogsHandler: {context}"
+def exception(message: str, ex: Exception, **extras):
+    """Log an exception message."""
+    _log("ERROR", message, ex, **extras)
+
+
+def _log(level: str, message: str, ex: Optional[Exception] = None, **extras):
+    text = f"{level}: VictoriaLogsHandler: {message}"
 
     if ex:
         text += f" {ex} "

@@ -3,15 +3,15 @@ import json
 import logging
 import threading
 import unittest
-
-import requests_mock
+from unittest.mock import MagicMock, patch
 
 from vlogs_handler import VictoriaLogsHandler
-from vlogs_handler.handler import _JSONEncoderPlus
+
+MODULE_PATH = "vlogs_handler.handler"
 
 
-@requests_mock.Mocker()
-class TestVictoriaLogsHandler(unittest.TestCase):
+@patch(MODULE_PATH + ".request.post_ndjson")
+class TestVictoriaLogsHandler_SingleLog(unittest.TestCase):
     def setUp(self):
         self.handler = VictoriaLogsHandler(url="http://localhost:30123")
         self.logger = logging.getLogger("test_logger")
@@ -23,18 +23,13 @@ class TestVictoriaLogsHandler(unittest.TestCase):
     def tearDown(self):
         self.logger.removeHandler(self.handler)
 
-    def text_callback(self, request, context):
+    def post_mock(self, *args, **kwargs):
         self.ready_event.set()
         return ""
 
-    def test_handler_should_send_normal_log(self, m: requests_mock.Mocker):
+    def test_should_send_a_log(self, m: MagicMock):
         # given
-        m.register_uri(
-            "POST",
-            "http://localhost:30123/insert/jsonline",
-            status_code=200,
-            text=self.text_callback,
-        )
+        m.side_effect = self.post_mock
 
         # when
         self.logger.info("Alpha")
@@ -44,21 +39,16 @@ class TestVictoriaLogsHandler(unittest.TestCase):
         self.assertTrue(called_in_time)
 
         self.assertEqual(m.call_count, 1)
-        got = m.last_request.json()  # type: ignore
+        got = json.loads(m.call_args.kwargs["data"])
         self.assertEqual(got["stream"], "test_logger")
         self.assertEqual(got["level"], "INFO")
         self.assertEqual(got["logger"], "test_logger")
         self.assertEqual(got["message"], "Alpha")
         self.assertNotIn("exception", got)
 
-    def test_handler_should_send_log_with_extras(self, m: requests_mock.Mocker):
+    def test_should_send_log_with_extras(self, m: MagicMock):
         # given
-        m.register_uri(
-            "POST",
-            "http://localhost:30123/insert/jsonline",
-            status_code=200,
-            text=self.text_callback,
-        )
+        m.side_effect = self.post_mock
         my_date = dt.datetime(2026, 1, 11, 12, 15, 42, 99, tzinfo=dt.timezone.utc)
 
         # when
@@ -69,19 +59,14 @@ class TestVictoriaLogsHandler(unittest.TestCase):
         self.assertTrue(called_in_time)
 
         self.assertEqual(m.call_count, 1)
-        got = m.last_request.json()  # type: ignore
+        got = json.loads(m.call_args.kwargs["data"])
         self.assertEqual(got["message"], "Alpha")
         self.assertEqual(got["planet"], "Jupiter")
         self.assertEqual(got["deadline"], "2026-01-11T12:15:42.000099+00:00")
 
-    def test_handler_should_send_exception_log(self, m: requests_mock.Mocker):
+    def test_should_send_exception_log(self, m: MagicMock):
         # given
-        m.register_uri(
-            "POST",
-            "http://localhost:30123/insert/jsonline",
-            status_code=200,
-            text=self.text_callback,
-        )
+        m.side_effect = self.post_mock
 
         # when
         try:
@@ -94,7 +79,7 @@ class TestVictoriaLogsHandler(unittest.TestCase):
         self.assertTrue(called_in_time)
 
         self.assertEqual(m.call_count, 1)
-        got = m.last_request.json()  # type: ignore
+        got = json.loads(m.call_args.kwargs["data"])
         self.assertEqual(got["stream"], "test_logger")
         self.assertEqual(got["level"], "ERROR")
         self.assertEqual(got["logger"], "test_logger")
@@ -102,8 +87,11 @@ class TestVictoriaLogsHandler(unittest.TestCase):
         self.assertEqual("ZeroDivisionError", got["exception_name"])
         self.assertIn("ZeroDivisionError", got["exception"])
 
+    def test_should_do_nothing_when_trying_to_start_again(self, _):
+        self.handler.start()
 
-@requests_mock.Mocker()
+
+@patch(MODULE_PATH + ".request.post_ndjson")
 class TestVictoriaLogsHandler_MultipleLogs(unittest.TestCase):
     def setUp(self):
         self.handler = VictoriaLogsHandler(url="http://localhost:30123", batch_size=3)
@@ -115,16 +103,19 @@ class TestVictoriaLogsHandler_MultipleLogs(unittest.TestCase):
         self.counter_target = 0
         self.lock = threading.Lock()
 
-    def test_handler_should_send_multiple_logs_in_single_request(
-        self, m: requests_mock.Mocker
-    ):
+    def tearDown(self):
+        self.logger.removeHandler(self.handler)
+
+    def post_mock(self, *args, **kwargs):
+        with self.lock:
+            self.counter += 1
+            if self.counter >= self.counter_target:
+                self.ready_event.set()
+        return ""
+
+    def test_handler_should_send_multiple_logs_in_single_request(self, m: MagicMock):
         # given
-        m.register_uri(
-            "POST",
-            "http://localhost:30123/insert/jsonline",
-            status_code=200,
-            text=self.text_callback,
-        )
+        m.side_effect = self.post_mock
         self.counter_target = 1
 
         # when
@@ -137,8 +128,8 @@ class TestVictoriaLogsHandler_MultipleLogs(unittest.TestCase):
         self.assertTrue(called_in_time)
 
         self.assertEqual(m.call_count, 1)
-        data = m.last_request.text  # type: ignore
-        lines = data.splitlines()
+        got: str = m.call_args.kwargs["data"]
+        lines = got.splitlines()
         self.assertEqual(len(lines), 2)
 
         e1 = json.loads(lines[0])
@@ -148,24 +139,9 @@ class TestVictoriaLogsHandler_MultipleLogs(unittest.TestCase):
         self.assertEqual(e2["message"], "Bravo")
         self.assertEqual(e2["message"], "Bravo")
 
-    def tearDown(self):
-        self.logger.removeHandler(self.handler)
-
-    def text_callback(self, request, context):
-        with self.lock:
-            self.counter += 1
-            if self.counter >= self.counter_target:
-                self.ready_event.set()
-        return ""
-
-    def test_handler_should_abide_by_batch_size_limit(self, m: requests_mock.Mocker):
+    def test_handler_should_abide_by_batch_size_limit(self, m: MagicMock):
         # given
-        m.register_uri(
-            "POST",
-            "http://localhost:30123/insert/jsonline",
-            status_code=200,
-            text=self.text_callback,
-        )
+        m.side_effect = self.post_mock
         self.counter_target = 2
 
         # when
@@ -182,45 +158,11 @@ class TestVictoriaLogsHandler_MultipleLogs(unittest.TestCase):
         self.assertEqual(m.call_count, 2)
 
         # first request
-        data = m.request_history[0].text  # type: ignore
-        lines = data.splitlines()
+        got: str = m.call_args_list[0].kwargs["data"]
+        lines = got.splitlines()
         self.assertEqual(len(lines), 3)
 
         # second request
-        data = m.request_history[1].text  # type: ignore
-        lines = data.splitlines()
+        got: str = m.call_args_list[1].kwargs["data"]
+        lines = got.splitlines()
         self.assertEqual(len(lines), 1)
-
-
-class TestJSONEncoderPlus(unittest.TestCase):
-    def test_should_encode(self):
-        # given
-        def my_func():
-            pass
-
-        my_date = dt.datetime(2026, 1, 11, 12, 15, 42, 99, tzinfo=dt.timezone.utc)
-        data = {
-            "class": _JSONEncoderPlus,
-            "date": my_date.date(),
-            "datetime": my_date,
-            "float": 1.23,
-            "func": my_func,
-            "integer": 1,
-            "set": {1, 2, 3},
-            "text": "Alpha",
-        }
-
-        # when
-        got = json.loads(json.dumps(data, cls=_JSONEncoderPlus))
-
-        # then
-        self.assertEqual(
-            got["class"], "<class 'vlogs_handler.handler._JSONEncoderPlus'>"
-        )
-        self.assertEqual(got["date"], "2026-01-11")
-        self.assertEqual(got["datetime"], "2026-01-11T12:15:42.000099+00:00")
-        self.assertEqual(got["float"], 1.23)
-        self.assertIn("my_func at", got["func"])
-        self.assertEqual(got["integer"], 1)
-        self.assertEqual(got["set"], [1, 2, 3])
-        self.assertEqual(got["text"], "Alpha")

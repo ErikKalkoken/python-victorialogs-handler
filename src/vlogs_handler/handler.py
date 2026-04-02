@@ -9,7 +9,6 @@ on a background thread.
 of Python's default json encoder to serialize additional types and improve robustness.
 """
 
-import datetime as dt
 import io
 import json
 import logging
@@ -18,9 +17,7 @@ import threading
 import traceback
 from typing import Any, Dict, List, Tuple
 
-import requests
-
-from . import log
+from . import encoder, log, request
 
 _VLOGS_INSERT_PATH = "insert/jsonline"
 _VLOGS_PARAMS = "_stream_fields=stream&_time_field=timestamp&_msg_field=message"
@@ -57,12 +54,12 @@ class VictoriaLogsHandler(logging.Handler):
     """VictoriaLogsHandler dispatches log events to a Victoria Logs server.
 
     Args:
-        url: URL of the vlogs server, e.g. `"http://localhost:9428"`
         batch_size: Upper limit for how many logs are combined into one request
             to the vlogs server.
         request_timeout: Timeout for sending a request to the vlogs server in seconds.
         start_worker: Whether to start the worker at initialization.
             Alternatively, the worker can be started later by calling `start()`.
+        url: URL of the vlogs server, e.g. `"http://localhost:9428"`
     """
 
     # TODO: add validation checks
@@ -82,18 +79,21 @@ class VictoriaLogsHandler(logging.Handler):
 
         # Start background worker
         self._worker_thread = threading.Thread(target=self._worker, daemon=True)
+        self._worker_started = False
+        self._worker_lock = threading.Lock()
         if start_worker:
             self.start()
 
-    # TODO: dont break when started twice
-
     def start(self):
-        """Starts the worker. This should only be called when the worker
-        has not already been started at instantiation.
-
-        Trying to start an already running worker will raise a RuntimeError exception.
+        """Start the worker.
+        If the worker is already running it does nothing.
         """
-        self._worker_thread.start()
+        with self._worker_lock:
+            if self._worker_started:
+                return
+
+            self._worker_started = True
+            self._worker_thread.start()
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
@@ -146,23 +146,15 @@ class VictoriaLogsHandler(logging.Handler):
         lines = []
         for entry in entries:
             try:
-                data = json.dumps(entry, cls=_JSONEncoderPlus)
+                data = json.dumps(entry, cls=encoder.JSON)
                 lines.append(data)
             except Exception as ex:
                 log.exception("convert entry to JSON", ex, entry=entry)
                 continue
 
         data = "\n".join(lines)
-        try:
-            response = requests.post(
-                f"{self._url}/{_VLOGS_INSERT_PATH}?{_VLOGS_PARAMS}",
-                data=data,
-                headers={"Content-Type": "application/stream+json"},
-                timeout=self._request_timeout,
-            )
-            response.raise_for_status()
-        except Exception as ex:
-            log.exception("send entry", ex)
+        url = f"{self._url}/{_VLOGS_INSERT_PATH}?{_VLOGS_PARAMS}"
+        request.post_ndjson(url=url, data=data, timeout=self._request_timeout)
 
 
 def _format_exception(ei) -> Tuple[str, str]:
@@ -197,24 +189,3 @@ def _calc_stream_from_record(record: logging.LogRecord):
         else:
             stream = record.name
     return stream
-
-
-class _JSONEncoderPlus(json.JSONEncoder):
-    """JSONEncoderPlus is an improved encoder that can convert dates and does not break.
-
-    Instead of breaking it will return a string representation
-    for unserializable fields.
-    """
-
-    def default(self, obj):
-        if isinstance(obj, (dt.datetime, dt.date)):
-            return obj.isoformat()
-
-        if isinstance(obj, set):
-            return list(obj)
-
-        try:
-            return super().default(obj)
-        except TypeError:
-            # If we can't serialize it, return None or a string representation
-            return str(obj)

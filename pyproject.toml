@@ -21,13 +21,12 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
     "Topic :: System :: Logging",
 ]
-dependencies = ["requests"]
 
 [project.urls]
 Home = "https://github.com/ErikKalkoken/python-victorialogs-handler"
 
 [project.optional-dependencies]
-test = ["requests-mock", "coverage"]
+test = ["coverage"]
 
 [tool.flit.module]
 name = "vlogs_handler"
