@@ -2,10 +2,20 @@
 
 import logging
 import urllib.error
+import urllib.parse
 import urllib.request
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+
+
+def is_url(url: str) -> bool:
+    """Report whether a string represents a valid URL."""
+    try:
+        result = urllib.parse.urlparse(url)
+        return all([result.scheme, result.netloc])
+    except ValueError:
+        return False
 
 
 def post_ndjson(*, url: str, data: str, timeout: Optional[float] = None) -> bool:

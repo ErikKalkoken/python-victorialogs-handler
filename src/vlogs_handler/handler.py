@@ -72,14 +72,26 @@ class VictoriaLogsHandler(logging.Handler):
         url: str = "http://localhost:9428",
     ):
         super().__init__()
-        self._batch_size = batch_size
-        self._queue = queue.Queue(-1)
-        self._request_timeout = request_timeout
-        self._url = url
+
+        if batch_size < 1:
+            raise ValueError(f"batch size must be >= 1 {batch_size}")
+
+        if request_timeout <= 0:
+            raise ValueError(f"request_timeout must be > 0: {request_timeout}")
+
+        if not request.is_url(url):
+            raise ValueError(f"url is not valid: {url}")
+
         name = __package__
         if not name:
-            raise RuntimeError("Must be run as module")
+            raise RuntimeError("Must run as module")
+
         self.addFilter(_create_filter(name))
+
+        self._batch_size = int(batch_size)
+        self._queue = queue.Queue(-1)
+        self._request_timeout = float(request_timeout)
+        self._url = url
 
         # Start background worker
         self._worker_thread = threading.Thread(target=self._worker, daemon=True)
@@ -201,4 +213,5 @@ def _calc_stream_from_record(record: logging.LogRecord):
             stream = s[0]
         else:
             stream = record.name
+    return stream
     return stream

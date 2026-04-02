@@ -10,10 +10,30 @@ from vlogs_handler import VictoriaLogsHandler
 MODULE_PATH = "vlogs_handler.handler"
 
 
+class TestVictoriaLogsHandler_Validations(unittest.TestCase):
+    def test_should_validate_batch_size(self):
+        with self.assertRaises(ValueError):
+            VictoriaLogsHandler(batch_size=0)
+
+        with self.assertRaises(ValueError):
+            VictoriaLogsHandler(batch_size=-1)
+
+    def test_should_should_validate_request_timeout(self):
+        with self.assertRaises(ValueError):
+            VictoriaLogsHandler(request_timeout=0)
+
+        with self.assertRaises(ValueError):
+            VictoriaLogsHandler(request_timeout=-1)
+
+    def test_should_should_validate_url(self):
+        with self.assertRaises(ValueError):
+            VictoriaLogsHandler(url="123")
+
+
 @patch(MODULE_PATH + ".request.post_ndjson")
 class TestVictoriaLogsHandler_SingleLog(unittest.TestCase):
     def setUp(self):
-        self.handler = VictoriaLogsHandler(url="http://localhost:30123")
+        self.handler = VictoriaLogsHandler()
         self.logger = logging.getLogger("test_logger")
         self.logger.addHandler(self.handler)
         self.logger.setLevel(logging.INFO)
@@ -94,7 +114,7 @@ class TestVictoriaLogsHandler_SingleLog(unittest.TestCase):
 @patch(MODULE_PATH + ".request.post_ndjson")
 class TestVictoriaLogsHandler_MultipleLogs(unittest.TestCase):
     def setUp(self):
-        self.handler = VictoriaLogsHandler(url="http://localhost:30123", batch_size=3)
+        self.handler = VictoriaLogsHandler(batch_size=3)
         self.logger = logging.getLogger("test_logger")
         self.logger.addHandler(self.handler)
         self.logger.setLevel(logging.INFO)

@@ -3,7 +3,4 @@
 from .handler import VictoriaLogsHandler  # noqa: F401
 
 __title__ = "Victoria Logs Handler"
-__version__ = "0.1.0dev3"
-
-# TO-DOs
-# [ ] Add validations
+__version__ = "0.1.0dev4"
