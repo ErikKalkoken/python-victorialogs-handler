@@ -1,10 +1,11 @@
 """Module request provides the functionality to send HTTP requests."""
 
+import logging
 import urllib.error
 import urllib.request
 from typing import Optional
 
-from vlogs_handler import log
+logger = logging.getLogger(__name__)
 
 
 def post_ndjson(*, url: str, data: str, timeout: Optional[float] = None) -> bool:
@@ -22,18 +23,25 @@ def post_ndjson(*, url: str, data: str, timeout: Optional[float] = None) -> bool
 
     except urllib.error.HTTPError as ex:
         body = ex.read(4096).decode("utf-8")
-        log.error(
-            "post_ndjson HTTP Error",
-            url=ex.url,
-            code=ex.code,
-            reason=ex.reason,
-            body=body,
+        logger.exception(
+            "post_ndjson HTTP Error: %s",
+            ex.reason,
+            extra={
+                "url": ex.url,
+                "code": ex.code,
+                "reason": ex.reason,
+                "body": body,
+            },
         )
 
     except urllib.error.URLError as ex:
-        log.error("post_ndjson URL Error", url=url, reason=ex.reason)
+        logger.exception(
+            "post_ndjson URL Error: %s",
+            ex.reason,
+            extra={"url": url, "reason": ex.reason},
+        )
 
     except Exception as ex:
-        log.exception("post_ndjson general exception", ex, url=url)
+        logger.exception("post_ndjson general exception", ex, extra={"url": url})
 
     return False

@@ -17,12 +17,12 @@ import threading
 import traceback
 from typing import Any, Dict, List, Tuple
 
-from . import encoder, log, request
+from . import encoder, request
+
+logger = logging.getLogger(__name__)
 
 _VLOGS_INSERT_PATH = "insert/jsonline"
 _VLOGS_PARAMS = "_stream_fields=stream&_time_field=timestamp&_msg_field=message"
-
-
 _STANDARD_ATTRS = {
     "args",
     "asctime",
@@ -76,6 +76,10 @@ class VictoriaLogsHandler(logging.Handler):
         self._queue = queue.Queue(-1)
         self._request_timeout = request_timeout
         self._url = url
+        name = __package__
+        if not name:
+            raise RuntimeError("Must be run as module")
+        self.addFilter(_create_filter(name))
 
         # Start background worker
         self._worker_thread = threading.Thread(target=self._worker, daemon=True)
@@ -99,8 +103,8 @@ class VictoriaLogsHandler(logging.Handler):
         try:
             log_entry = self._format_log_record(record)
             self._queue.put(log_entry)
-        except Exception as ex:
-            log.exception("emitting record", ex)
+        except Exception:
+            logger.exception("emitting record")
             self.handleError(record)
 
     def _format_log_record(self, record: logging.LogRecord) -> Dict[str, Any]:
@@ -148,13 +152,22 @@ class VictoriaLogsHandler(logging.Handler):
             try:
                 data = json.dumps(entry, cls=encoder.JSON)
                 lines.append(data)
-            except Exception as ex:
-                log.exception("convert entry to JSON", ex, entry=entry)
+            except Exception:
+                logger.exception("convert entry to JSON", extra={"entry": entry})
                 continue
 
         data = "\n".join(lines)
         url = f"{self._url}/{_VLOGS_INSERT_PATH}?{_VLOGS_PARAMS}"
         request.post_ndjson(url=url, data=data, timeout=self._request_timeout)
+
+
+def _create_filter(name: str):
+    def filter_logic(record: logging.LogRecord) -> bool:
+        return not record.name.startswith(name)
+
+    f = logging.Filter()
+    f.filter = filter_logic
+    return f
 
 
 def _format_exception(ei) -> Tuple[str, str]:
