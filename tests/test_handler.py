@@ -29,11 +29,15 @@ class TestVictoriaLogsHandler_Validations(unittest.TestCase):
         with self.assertRaises(ValueError):
             VictoriaLogsHandler(url="123")
 
+    def test_should_should_validate_worker_timeout(self):
+        with self.assertRaises(ValueError):
+            VictoriaLogsHandler(worker_timeout=-1)
+
 
 @patch(MODULE_PATH + ".request.post_ndjson")
 class TestVictoriaLogsHandler_SingleLog(unittest.TestCase):
     def setUp(self):
-        self.handler = VictoriaLogsHandler()
+        self.handler = VictoriaLogsHandler(worker_timeout=0.01)
         self.logger = logging.getLogger("test_logger")
         self.logger.addHandler(self.handler)
         self.logger.setLevel(logging.INFO)
@@ -114,7 +118,7 @@ class TestVictoriaLogsHandler_SingleLog(unittest.TestCase):
 @patch(MODULE_PATH + ".request.post_ndjson")
 class TestVictoriaLogsHandler_MultipleLogs(unittest.TestCase):
     def setUp(self):
-        self.handler = VictoriaLogsHandler(batch_size=3)
+        self.handler = VictoriaLogsHandler(batch_size=3, worker_timeout=0.01)
         self.logger = logging.getLogger("test_logger")
         self.logger.addHandler(self.handler)
         self.logger.setLevel(logging.INFO)
@@ -157,7 +161,6 @@ class TestVictoriaLogsHandler_MultipleLogs(unittest.TestCase):
 
         e2 = json.loads(lines[1])
         self.assertEqual(e2["message"], "Bravo")
-        self.assertEqual(e2["message"], "Bravo")
 
     def test_handler_should_abide_by_batch_size_limit(self, m: MagicMock):
         # given
@@ -186,3 +189,22 @@ class TestVictoriaLogsHandler_MultipleLogs(unittest.TestCase):
         got: str = m.call_args_list[1].kwargs["data"]
         lines = got.splitlines()
         self.assertEqual(len(lines), 1)
+
+    def test_handler_should_shutdown_gracefully(self, m: MagicMock):
+        # given
+        m.side_effect = self.post_mock
+        self.counter_target = 1
+        self.logger.info("Alpha")
+
+        # when
+        self.handler.start()
+        self.handler.close()
+
+        # then
+        self.assertEqual(m.call_count, 1)
+        got: str = m.call_args.kwargs["data"]
+        lines = got.splitlines()
+        self.assertEqual(len(lines), 1)
+
+        e1 = json.loads(lines[0])
+        self.assertEqual(e1["message"], "Alpha")

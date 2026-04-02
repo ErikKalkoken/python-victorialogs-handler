@@ -14,6 +14,7 @@ import json
 import logging
 import queue
 import threading
+import time
 import traceback
 from typing import Any, Dict, List, Tuple
 
@@ -60,6 +61,8 @@ class VictoriaLogsHandler(logging.Handler):
         start_worker: Whether to start the worker at initialization.
             Alternatively, the worker can be started later by calling `start()`.
         url: URL of the vlogs server, e.g. `"http://localhost:9428"`
+        worker_timeout: time a worker will wait to potentially collect
+            additional logs for each request
     """
 
     # TODO: add validation checks
@@ -70,14 +73,18 @@ class VictoriaLogsHandler(logging.Handler):
         request_timeout: float = 5.0,
         start_worker: bool = False,
         url: str = "http://localhost:9428",
+        worker_timeout: float = 0.5,
     ):
         super().__init__()
 
         if batch_size < 1:
-            raise ValueError(f"batch size must be >= 1 {batch_size}")
+            raise ValueError(f"batch_size must be >= 1 {batch_size}")
 
         if request_timeout <= 0:
             raise ValueError(f"request_timeout must be > 0: {request_timeout}")
+
+        if worker_timeout < 0:
+            raise ValueError(f"worker_timeout must be >= 0: {worker_timeout}")
 
         if not request.is_url(url):
             raise ValueError(f"url is not valid: {url}")
@@ -91,7 +98,8 @@ class VictoriaLogsHandler(logging.Handler):
         self._batch_size = int(batch_size)
         self._queue = queue.Queue(-1)
         self._request_timeout = float(request_timeout)
-        self._url = url
+        self._url = str(url)
+        self._worker_timeout = float(worker_timeout)
 
         # Start background worker
         self._worker_thread = threading.Thread(target=self._worker, daemon=True)
@@ -100,16 +108,12 @@ class VictoriaLogsHandler(logging.Handler):
         if start_worker:
             self.start()
 
-    def start(self):
-        """Start the worker.
-        If the worker is already running it does nothing.
-        """
-        with self._worker_lock:
-            if self._worker_started:
-                return
-
-            self._worker_started = True
-            self._worker_thread.start()
+    def close(self):
+        """Cleanup resources and flush the queue."""
+        self._queue.put(None)  # "Poison pill" to tell worker to stop
+        self._worker_thread.join(timeout=self._request_timeout + 1)
+        self._worker_started = False
+        super().close()
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
@@ -118,6 +122,15 @@ class VictoriaLogsHandler(logging.Handler):
         except Exception:
             logger.exception("emitting record")
             self.handleError(record)
+
+    def start(self):
+        """Start the worker. Do nothing when the worker is already running."""
+        with self._worker_lock:
+            if self._worker_started:
+                return
+
+            self._worker_started = True
+            self._worker_thread.start()
 
     def _format_log_record(self, record: logging.LogRecord) -> Dict[str, Any]:
         entry = {
@@ -146,15 +159,26 @@ class VictoriaLogsHandler(logging.Handler):
         return entry
 
     def _worker(self):
-        while True:
-            entries: List[Dict[str, Any]] = []
-            entries.append(self._queue.get())
+        entries: List[Dict[str, Any]] = []
+        is_shutdown = False
+        while not is_shutdown:
+            entry = self._queue.get()
+            if entry is None:
+                break  # Shutdown signal
 
+            entries = [entry]
+            time.sleep(self._worker_timeout)  # wait to collect more logs for batch
             while len(entries) < self._batch_size:
                 try:
-                    entries.append(self._queue.get_nowait())
+                    entry = self._queue.get_nowait()
                 except queue.Empty:
                     break
+
+                if entry is None:
+                    is_shutdown = True
+                    break  # Shutdown signal
+
+                entries.append(entry)
 
             self._send(entries)
 
@@ -183,8 +207,7 @@ def _create_filter(name: str):
 
 
 def _format_exception(ei) -> Tuple[str, str]:
-    """
-    Format and return the name of the exception
+    """Format and return the name of the exception
     and specified exception information as strings.
 
     This default implementation just uses
@@ -213,5 +236,4 @@ def _calc_stream_from_record(record: logging.LogRecord):
             stream = s[0]
         else:
             stream = record.name
-    return stream
     return stream
