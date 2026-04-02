@@ -26,6 +26,20 @@ STATUS: In development
 
 - **Standard Configuration Support**: Fully compatible with `logging.config.dictConfig`, making it easy to drop into frameworks like Django, Flask, or FastAPI.
 
+## Installation
+
+The handler can be installed with PIP from PyPI:
+
+```sh
+pip install victorialogs-handler
+```
+
+Then it can be used like any other logging handler to configure a logger.
+
+## Usage
+
+Please see the directory `/examples` for examples on how to use the handler.
+
 ## Technical details
 
 This section documents technical details of the solution.

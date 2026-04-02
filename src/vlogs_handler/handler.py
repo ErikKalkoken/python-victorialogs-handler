@@ -1,4 +1,13 @@
-"""Module handler provides the implementation of the vlogs handler."""
+"""Module handler provides the implementation of the vlogs handler.
+
+- The handler collects log events and sends them to the Victoria Logs server
+on a background thread.
+- The handler uses the vlogs's JSON Stream API for data ingestion.
+- Multiple logs are batched together into a single request using the ndjson protocol
+    to minimize the number of requests.
+- Log records are converted into JSON objects. The handler uses an extension
+of Python's default json encoder to serialize additional types and improve robustness.
+"""
 
 import datetime as dt
 import io
@@ -45,23 +54,38 @@ _STANDARD_ATTRS = {
 
 
 class VictoriaLogsHandler(logging.Handler):
-    """VictoriaLogsHandler dispatches log events to a Victoria Logs server."""
+    """VictoriaLogsHandler dispatches log events to a Victoria Logs server.
+
+    Args:
+        url: URL of the vlogs server, e.g. `"http://localhost:9428"`
+        batch_size: Upper limit for how many logs are combined into one request
+            to the vlogs server.
+        request_timeout: Timeout for sending a request to the vlogs server in seconds.
+        start_worker: Whether to start the worker at initialization.
+            Alternatively, the worker can be started later by calling `start()`.
+    """
+
+    # TODO: add validation checks
 
     def __init__(
         self,
-        url: str,
+        batch_size: int = 50,
         request_timeout: float = 5.0,
-        suspend_worker_start: bool = False,
+        start_worker: bool = False,
+        url: str = "http://localhost:9428",
     ):
         super().__init__()
-        self._url = url
+        self._batch_size = batch_size
         self._queue = queue.Queue(-1)
         self._request_timeout = request_timeout
+        self._url = url
 
         # Start background worker
         self._worker_thread = threading.Thread(target=self._worker, daemon=True)
-        if not suspend_worker_start:
+        if start_worker:
             self.start()
+
+    # TODO: dont break when started twice
 
     def start(self):
         """Starts the worker. This should only be called when the worker
@@ -73,13 +97,13 @@ class VictoriaLogsHandler(logging.Handler):
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
-            log_entry = self.format_log_entry(record)
+            log_entry = self._format_log_record(record)
             self._queue.put(log_entry)
         except Exception as ex:
             log.exception("emitting record", ex)
             self.handleError(record)
 
-    def format_log_entry(self, record: logging.LogRecord) -> Dict[str, Any]:
+    def _format_log_record(self, record: logging.LogRecord) -> Dict[str, Any]:
         entry = {
             "stream": _calc_stream_from_record(record),
             "timestamp": record.created,
@@ -108,9 +132,9 @@ class VictoriaLogsHandler(logging.Handler):
     def _worker(self):
         while True:
             entries: List[Dict[str, Any]] = []
-
             entries.append(self._queue.get())
-            while True:
+
+            while len(entries) < self._batch_size:
                 try:
                     entries.append(self._queue.get_nowait())
                 except queue.Empty:

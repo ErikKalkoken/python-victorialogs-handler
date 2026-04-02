@@ -1,8 +1,8 @@
 import datetime as dt
 import json
 import logging
+import threading
 import unittest
-from threading import Event
 
 import requests_mock
 
@@ -17,7 +17,8 @@ class TestVictoriaLogsHandler(unittest.TestCase):
         self.logger = logging.getLogger("test_logger")
         self.logger.addHandler(self.handler)
         self.logger.setLevel(logging.INFO)
-        self.ready_event = Event()
+        self.ready_event = threading.Event()
+        self.handler.start()
 
     def tearDown(self):
         self.logger.removeHandler(self.handler)
@@ -105,22 +106,18 @@ class TestVictoriaLogsHandler(unittest.TestCase):
 @requests_mock.Mocker()
 class TestVictoriaLogsHandler_MultipleLogs(unittest.TestCase):
     def setUp(self):
-        self.handler = VictoriaLogsHandler(
-            url="http://localhost:30123", suspend_worker_start=True
-        )
+        self.handler = VictoriaLogsHandler(url="http://localhost:30123", batch_size=3)
         self.logger = logging.getLogger("test_logger")
         self.logger.addHandler(self.handler)
         self.logger.setLevel(logging.INFO)
-        self.ready_event = Event()
+        self.ready_event = threading.Event()
+        self.counter = 0
+        self.counter_target = 0
+        self.lock = threading.Lock()
 
-    def tearDown(self):
-        self.logger.removeHandler(self.handler)
-
-    def text_callback(self, request, context):
-        self.ready_event.set()
-        return ""
-
-    def test_handler_sends_log(self, m: requests_mock.Mocker):
+    def test_handler_should_send_multiple_logs_in_single_request(
+        self, m: requests_mock.Mocker
+    ):
         # given
         m.register_uri(
             "POST",
@@ -128,6 +125,7 @@ class TestVictoriaLogsHandler_MultipleLogs(unittest.TestCase):
             status_code=200,
             text=self.text_callback,
         )
+        self.counter_target = 1
 
         # when
         self.logger.info("Alpha")
@@ -149,6 +147,49 @@ class TestVictoriaLogsHandler_MultipleLogs(unittest.TestCase):
         e2 = json.loads(lines[1])
         self.assertEqual(e2["message"], "Bravo")
         self.assertEqual(e2["message"], "Bravo")
+
+    def tearDown(self):
+        self.logger.removeHandler(self.handler)
+
+    def text_callback(self, request, context):
+        with self.lock:
+            self.counter += 1
+            if self.counter >= self.counter_target:
+                self.ready_event.set()
+        return ""
+
+    def test_handler_should_abide_by_batch_size_limit(self, m: requests_mock.Mocker):
+        # given
+        m.register_uri(
+            "POST",
+            "http://localhost:30123/insert/jsonline",
+            status_code=200,
+            text=self.text_callback,
+        )
+        self.counter_target = 2
+
+        # when
+        self.logger.info("l1")
+        self.logger.info("l2")
+        self.logger.info("l3")
+        self.logger.info("l4")
+        self.handler.start()
+
+        # then
+        called_in_time = self.ready_event.wait(timeout=2.0)
+        self.assertTrue(called_in_time)
+
+        self.assertEqual(m.call_count, 2)
+
+        # first request
+        data = m.request_history[0].text  # type: ignore
+        lines = data.splitlines()
+        self.assertEqual(len(lines), 3)
+
+        # second request
+        data = m.request_history[1].text  # type: ignore
+        lines = data.splitlines()
+        self.assertEqual(len(lines), 1)
 
 
 class TestJSONEncoderPlus(unittest.TestCase):
