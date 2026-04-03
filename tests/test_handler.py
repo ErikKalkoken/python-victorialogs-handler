@@ -1,5 +1,4 @@
 import datetime as dt
-import json
 import logging
 import threading
 import unittest
@@ -69,7 +68,7 @@ class TestVictoriaLogsHandler_SingleLog(unittest.TestCase):
         self.assertTrue(called_in_time)
 
         self.assertEqual(m.call_count, 1)
-        got = json.loads(m.call_args.kwargs["data"])
+        got = m.call_args.kwargs["data"][0]
         self.assertEqual(got["stream"], "test_logger")
         self.assertEqual(got["level"], "INFO")
         self.assertEqual(got["logger"], "test_logger")
@@ -89,10 +88,10 @@ class TestVictoriaLogsHandler_SingleLog(unittest.TestCase):
         self.assertTrue(called_in_time)
 
         self.assertEqual(m.call_count, 1)
-        got = json.loads(m.call_args.kwargs["data"])
+        got = m.call_args.kwargs["data"][0]
         self.assertEqual(got["message"], "Alpha")
         self.assertEqual(got["planet"], "Jupiter")
-        self.assertEqual(got["deadline"], "2026-01-11T12:15:42.000099+00:00")
+        self.assertEqual(got["deadline"], my_date)
 
     def test_should_send_exception_log(self, m: MagicMock):
         # given
@@ -109,7 +108,7 @@ class TestVictoriaLogsHandler_SingleLog(unittest.TestCase):
         self.assertTrue(called_in_time)
 
         self.assertEqual(m.call_count, 1)
-        got = json.loads(m.call_args.kwargs["data"])
+        got = m.call_args.kwargs["data"][0]
         self.assertEqual(got["stream"], "test_logger")
         self.assertEqual(got["level"], "ERROR")
         self.assertEqual(got["logger"], "test_logger")
@@ -158,15 +157,11 @@ class TestVictoriaLogsHandler_MultipleLogs(unittest.TestCase):
         self.assertTrue(called_in_time)
 
         self.assertEqual(m.call_count, 1)
-        got: str = m.call_args.kwargs["data"]
-        lines = got.splitlines()
-        self.assertEqual(len(lines), 2)
+        got = m.call_args.kwargs["data"]
+        self.assertEqual(len(got), 2)
 
-        e1 = json.loads(lines[0])
-        self.assertEqual(e1["message"], "Alpha")
-
-        e2 = json.loads(lines[1])
-        self.assertEqual(e2["message"], "Bravo")
+        self.assertEqual(got[0]["message"], "Alpha")
+        self.assertEqual(got[1]["message"], "Bravo")
 
 
 @patch(MODULE_PATH + ".request.post_ndjson")
@@ -211,9 +206,8 @@ class TestVictoriaLogsHandler_MultipleLogs_2(unittest.TestCase):
 
         self.assertEqual(m.call_count, 1)
 
-        got: str = m.call_args.kwargs["data"]
-        lines = got.splitlines()
-        self.assertEqual(len(lines), 4)
+        got = m.call_args.kwargs["data"]
+        self.assertEqual(len(got), 4)
 
     def test_handler_should_shutdown_gracefully(self, m: MagicMock):
         # given
@@ -227,9 +221,6 @@ class TestVictoriaLogsHandler_MultipleLogs_2(unittest.TestCase):
 
         # then
         self.assertEqual(m.call_count, 1)
-        got: str = m.call_args.kwargs["data"]
-        lines = got.splitlines()
-        self.assertEqual(len(lines), 1)
-
-        e1 = json.loads(lines[0])
-        self.assertEqual(e1["message"], "Alpha")
+        got = m.call_args.kwargs["data"]
+        self.assertEqual(len(got), 1)
+        self.assertEqual(got[0]["message"], "Alpha")

@@ -41,6 +41,6 @@ atexit.register(logging.shutdown)
 logger = logging.getLogger(__name__)
 
 # Record log events
-logger.debug("This is a debug message (visible in console)")
-logger.info("This is an info message (visible in console and file)")
-logger.error("Something went wrong!")
+logger.debug("dict_example: This is a debug message")
+logger.info("dict_example: This is an info message")
+logger.error("dict_example: This is an error message")

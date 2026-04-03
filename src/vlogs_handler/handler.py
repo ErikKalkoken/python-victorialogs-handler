@@ -10,14 +10,13 @@ of Python's default json encoder to serialize additional types and improve robus
 """
 
 import io
-import json
 import logging
 import queue
 import threading
 import traceback
 from typing import Any, Dict, List, Tuple
 
-from . import encoder, request
+from . import request
 
 logger = logging.getLogger(__name__)
 
@@ -199,42 +198,12 @@ class VictoriaLogsHandler(logging.Handler):
                 break
 
         if entries:
-            self._send(entries)
-
-    def _send(self, entries: List[Dict[str, Any]]):
-        if not entries:
-            return
-
-        lines = []
-        for entry in entries:
-            try:
-                data = json.dumps(entry, cls=encoder.JSON)
-                lines.append(data)
-            except Exception:
-                logger.exception("convert entry to JSON", extra={"entry": entry})
-                continue
-
-        data = "\n".join(lines)
-        url = f"{self._url}/{_VLOGS_INSERT_PATH}?{_VLOGS_PARAMS}"
-        ok = request.post_ndjson(url=url, data=data, timeout=self._request_timeout)
-        if not ok:
-            n = 0
-            for entry in entries:
-                try:
-                    self._queue.put_nowait(entry)
-                    n += 1
-                except queue.Full:
-                    logger.error(
-                        "queue full. Re-queued %d entries. %s discarded",
-                        n,
-                        len(entries) - n,
-                    )
-                    break
-
-            logger.info("re-queued entries after failed send: %d", n)
-            return
-
-        logger.debug("entries to log server sent: %d", len(entries))
+            url = f"{self._url}/{_VLOGS_INSERT_PATH}?{_VLOGS_PARAMS}"
+            ok = request.post_ndjson(
+                url=url, data=entries, timeout=self._request_timeout
+            )
+            if ok:
+                logger.debug("entries submitted to log server: %d", len(entries))
 
 
 def _create_filter(name: str):

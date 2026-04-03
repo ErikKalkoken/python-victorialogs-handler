@@ -33,10 +33,10 @@ atexit.register(logging.shutdown)
 vlogs_handler.start()
 
 # Log example with structured data
-logger.info("This is an info message", extra={"user_id": 42})
+logger.info("basic_example: This is an info message", extra={"user_id": 42})
 
 # Log example with an exception
 try:
     _ = 1 / 0
 except Exception:
-    logger.exception("This is an error")
+    logger.exception("basic_example: This is an exception")
