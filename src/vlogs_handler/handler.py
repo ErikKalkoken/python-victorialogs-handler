@@ -16,6 +16,7 @@ import logging
 import queue
 import threading
 import traceback
+import urllib.parse
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from . import request
@@ -69,18 +70,16 @@ class VictoriaLogsHandler(logging.Handler):
             "threadName",
         }
     )
-    _VLOGS_INSERT_PATH = "insert/jsonline"
-    _VLOGS_PARAMS = "_stream_fields=stream&_time_field=timestamp&_msg_field=message"
 
     def __init__(
         self,
         batch_size: int = 1_000,
-        flush_interval: float = 5.0,
         buffer_size: int = 100_000,
+        flush_interval: float = 5.0,
         record_to_stream: Optional[Callable[[logging.LogRecord], str]] = None,
         request_timeout: float = 3.0,
-        start_worker: bool = True,
         shutdown_timeout: float = 2.0,
+        start_worker: bool = True,
         url: str = "http://localhost:9428",
     ):
         super().__init__()
@@ -115,7 +114,17 @@ class VictoriaLogsHandler(logging.Handler):
         self._record_to_stream = record_to_stream or _top_package_name
         self._request_timeout = float(request_timeout)
         self._shutdown_timeout = float(shutdown_timeout)
-        self._url = str(url)
+        self._vlogs_url = (
+            urllib.parse.urljoin(url, "/insert/jsonline")
+            + "?"
+            + urllib.parse.urlencode(
+                {
+                    "_stream_fields": "stream",
+                    "_time_field": "timestamp",
+                    "_msg_field": "message",
+                }
+            )
+        )
         self._worker_thread = threading.Thread(target=self._worker, daemon=True)
 
         self._lock = threading.Lock()
@@ -215,9 +224,8 @@ class VictoriaLogsHandler(logging.Handler):
                 break
 
         if entries:
-            url = f"{self._url}/{self._VLOGS_INSERT_PATH}?{self._VLOGS_PARAMS}"
             ok = request.post_ndjson(
-                url=url, data=entries, timeout=self._request_timeout
+                url=self._vlogs_url, data=entries, timeout=self._request_timeout
             )
             if not ok:
                 n = 0

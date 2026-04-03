@@ -38,7 +38,7 @@ def post_ndjson(*, url: str, data: List[Any], timeout: Optional[float] = None) -
             try:
                 json.dump(obj, buffer, cls=encoder.JSON)
                 buffer.write("\n")
-            except Exception:
+            except (TypeError, ValueError, RecursionError):
                 logger.exception("convert obj to JSON. Discarded", extra={"entry": obj})
                 continue
 
@@ -71,6 +71,9 @@ def post_ndjson(*, url: str, data: List[Any], timeout: Optional[float] = None) -
             ex.reason,
             extra={"url": url, "reason": ex.reason},
         )
+
+    except TimeoutError:
+        logger.warning("Timed out", extra={"url": url})
 
     except Exception:
         logger.exception("general exception", extra={"url": url})

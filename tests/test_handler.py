@@ -9,7 +9,19 @@ from vlogs_handler import VictoriaLogsHandler, handler
 MODULE_PATH = "vlogs_handler.handler"
 
 
-class TestVictoriaLogsHandler_Validations(unittest.TestCase):
+class TestVictoriaLogsHandler_Init(unittest.TestCase):
+    def test_should_init_with_defaults(self):
+        handler = VictoriaLogsHandler()
+        self.assertEqual(handler._batch_size, 1000)
+        self.assertEqual(handler._flush_interval, 5.0)
+        self.assertEqual(handler._request_timeout, 3.0)
+        self.assertEqual(handler._shutdown_timeout, 2.0)
+        self.assertEqual(
+            handler._vlogs_url,
+            "http://localhost:9428/insert/jsonline"
+            "?_stream_fields=stream&_time_field=timestamp&_msg_field=message",
+        )
+
     def test_should_validate_batch_size(self):
         with self.assertRaises(ValueError):
             VictoriaLogsHandler(batch_size=0)
