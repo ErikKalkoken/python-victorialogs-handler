@@ -217,8 +217,24 @@ class VictoriaLogsHandler(logging.Handler):
         data = "\n".join(lines)
         url = f"{self._url}/{_VLOGS_INSERT_PATH}?{_VLOGS_PARAMS}"
         ok = request.post_ndjson(url=url, data=data, timeout=self._request_timeout)
-        if ok:
-            logger.debug("entries to log server sent: %d", len(entries))
+        if not ok:
+            n = 0
+            for entry in entries:
+                try:
+                    self._queue.put_nowait(entry)
+                    n += 1
+                except queue.Full:
+                    logger.error(
+                        "queue full. Re-queued %d entries. %s discarded",
+                        n,
+                        len(entries) - n,
+                    )
+                    break
+
+            logger.info("re-queued entries after failed send: %d", n)
+            return
+
+        logger.debug("entries to log server sent: %d", len(entries))
 
 
 def _create_filter(name: str):
