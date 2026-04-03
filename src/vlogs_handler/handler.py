@@ -56,6 +56,10 @@ class VictoriaLogsHandler(logging.Handler):
     Args:
         batch_size: New logs are submitted immediately once a threshold is reached.
         flush_interval: New logs are submitted every x seconds.
+        queue_size: Maximum number of queued logs.
+            If queue_size <= 0, the queue size is infinite.
+            When the queue is full additional logs will be discarded.
+            100 000 log entries consume roughly 100 MB of RAM.
         request_timeout: Timeout when sending a request to the vlogs server in seconds.
         start_worker: Whether to start the worker at initialization.
             Alternatively, the worker can be started later by calling `start()`.
@@ -65,8 +69,9 @@ class VictoriaLogsHandler(logging.Handler):
 
     def __init__(
         self,
-        batch_size: int = 1000,
+        batch_size: int = 1_000,
         flush_interval: float = 5.0,
+        queue_size: int = 100_000,
         request_timeout: float = 3.0,
         start_worker: bool = False,
         shutdown_timeout: float = 2.0,
@@ -97,7 +102,7 @@ class VictoriaLogsHandler(logging.Handler):
 
         self._batch_size = int(batch_size)
         self._flush_interval = float(flush_interval)
-        self._queue = queue.Queue(-1)
+        self._queue = queue.Queue(int(queue_size))
         self._request_timeout = float(request_timeout)
         self._shutdown_timeout = float(shutdown_timeout)
         self._url = str(url)
@@ -128,6 +133,9 @@ class VictoriaLogsHandler(logging.Handler):
         try:
             log_entry = self._format_log_record(record)
             self._queue.put_nowait(log_entry)
+        except queue.Full:
+            logger.error("queue full. Discarding new log.")
+            return
         except Exception:
             logger.exception("emitting record")
             self.handleError(record)
