@@ -166,7 +166,6 @@ class VictoriaLogsHandler(logging.Handler):
         with self._lock:
             self._added_count += 1
             if self._added_count > self._batch_size:
-                self._added_count = 0
                 self._worker_run.set()
 
     def _format_log_record(self, record: logging.LogRecord) -> Dict[str, Any]:
@@ -209,6 +208,8 @@ class VictoriaLogsHandler(logging.Handler):
     def _worker(self):
         while not self._worker_shutdown.is_set():
             self._worker_run.wait(timeout=self._flush_interval)
+            with self._lock:
+                self._added_count = 0
             self.flush()
             self._worker_run.clear()
 
