@@ -50,11 +50,12 @@ class TestVictoriaLogsHandler_SingleLog(unittest.TestCase):
         self.handler.start()
 
     def tearDown(self):
+        self.handler.close()
         self.logger.removeHandler(self.handler)
 
     def post_mock(self, *args, **kwargs):
         self.ready_event.set()
-        return ""
+        return True
 
     def test_should_send_a_log(self, m: MagicMock):
         # given
@@ -133,6 +134,7 @@ class TestVictoriaLogsHandler_MultipleLogs(unittest.TestCase):
         self.lock = threading.Lock()
 
     def tearDown(self):
+        self.handler.close()
         self.logger.removeHandler(self.handler)
 
     def post_mock(self, *args, **kwargs):
@@ -140,7 +142,7 @@ class TestVictoriaLogsHandler_MultipleLogs(unittest.TestCase):
             self.counter += 1
             if self.counter >= self.counter_target:
                 self.ready_event.set()
-        return ""
+        return True
 
     def test_handler_should_send_multiple_logs_in_single_request(self, m: MagicMock):
         # given
@@ -177,6 +179,7 @@ class TestVictoriaLogsHandler_MultipleLogs_2(unittest.TestCase):
         self.lock = threading.Lock()
 
     def tearDown(self):
+        self.handler.close()
         self.logger.removeHandler(self.handler)
 
     def post_mock(self, *args, **kwargs):
@@ -184,7 +187,7 @@ class TestVictoriaLogsHandler_MultipleLogs_2(unittest.TestCase):
             self.counter += 1
             if self.counter >= self.counter_target:
                 self.ready_event.set()
-        return ""
+        return True
 
     def test_handler_should_send_immediately_when_batch_size_reached(
         self, m: MagicMock

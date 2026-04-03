@@ -1,12 +1,14 @@
 """Module handler provides the implementation of the vlogs handler.
 
-- The handler collects log events and sends them to the VictoriaLogs server
-on a background thread.
-- The handler uses the vlogs's JSON Stream API for data ingestion.
-- Multiple logs are batched together into a single request using the ndjson protocol
-    to minimize the number of requests.
+- The handler collects log events and sends them asynchronously to the vlogs server
 - Log records are converted into JSON objects. The handler uses an extension
 of Python's default json encoder to serialize additional types and improve robustness.
+- The handler uses the vlogs's JSON Stream API for data ingestion.
+- Logs are submitted when the flush interval expires or when the batch size is exceeded
+- Multiple logs are batched together into a single request using the ndjson protocol
+    to minimize the number of requests.
+- When submission to the log server fails, logs are returns into the buffer
+    for later retry.
 """
 
 import io
@@ -55,10 +57,10 @@ class VictoriaLogsHandler(logging.Handler):
     Args:
         batch_size: New logs are submitted immediately once a threshold is reached.
         flush_interval: New logs are submitted every x seconds.
-        queue_size: Maximum number of queued logs.
-            If queue_size <= 0, the queue size is infinite.
-            When the queue is full additional logs will be discarded.
-            100 000 log entries consume roughly 100 MB of RAM.
+        buffer_size: Maximum number of buffered logs.
+            If buffer_size <= 0, the size is unlimited.
+            When the buffer is full any new logs will be discarded.
+            100 000 logs approximately consume 100 MB of RAM in the buffer.
         request_timeout: Timeout when sending a request to the vlogs server in seconds.
         start_worker: Whether to start the worker at initialization.
             Alternatively, the worker can be started later by calling `start()`.
@@ -70,7 +72,7 @@ class VictoriaLogsHandler(logging.Handler):
         self,
         batch_size: int = 1_000,
         flush_interval: float = 5.0,
-        queue_size: int = 100_000,
+        buffer_size: int = 100_000,
         request_timeout: float = 3.0,
         start_worker: bool = False,
         shutdown_timeout: float = 2.0,
@@ -95,29 +97,30 @@ class VictoriaLogsHandler(logging.Handler):
 
         name = __package__
         if not name:
-            raise RuntimeError("Must run as module")
+            raise RuntimeError("must run as module")
 
         self.addFilter(_create_filter(name))
 
         self._batch_size = int(batch_size)
         self._flush_interval = float(flush_interval)
-        self._queue = queue.Queue(int(queue_size))
+        self._queue = queue.Queue(int(buffer_size))
         self._request_timeout = float(request_timeout)
         self._shutdown_timeout = float(shutdown_timeout)
         self._url = str(url)
-
-        # Start background worker
         self._worker_thread = threading.Thread(target=self._worker, daemon=True)
+
+        self._lock = threading.Lock()
         self._worker_started = False
-        self._worker_lock = threading.Lock()
         self._worker_run = threading.Event()
         self._worker_shutdown = threading.Event()
+        self._added_count = 0
+
         if start_worker:
             self.start()
 
     def close(self):
         """Cleanup resources and flush the queue."""
-        with self._worker_lock:
+        with self._lock:
             if self._worker_shutdown.is_set():
                 return  # run shutdown once only
 
@@ -132,16 +135,21 @@ class VictoriaLogsHandler(logging.Handler):
         try:
             log_entry = self._format_log_record(record)
             self._queue.put_nowait(log_entry)
+
         except queue.Full:
-            logger.error("queue full. Discarding new log.")
+            logger.error("Queue full. Discarding new log.")
             return
+
         except Exception:
-            logger.exception("emitting record")
+            logger.exception("Emitting record")
             self.handleError(record)
             return
 
-        if self._queue.qsize() > self._batch_size:
-            self._worker_run.set()
+        with self._lock:
+            self._added_count += 1
+            if self._added_count > self._batch_size:
+                self._added_count = 0
+                self._worker_run.set()
 
     def _format_log_record(self, record: logging.LogRecord) -> Dict[str, Any]:
         entry = {
@@ -171,14 +179,14 @@ class VictoriaLogsHandler(logging.Handler):
 
     def start(self):
         """Start the worker. Do nothing when the worker is already running."""
-        with self._worker_lock:
+        with self._lock:
             if self._worker_started:
                 return
 
             self._worker_started = True
             self._worker_thread.start()
 
-        logger.debug("worker started")
+        logger.debug("Worker started")
 
     def _worker(self):
         while not self._worker_shutdown.is_set():
@@ -186,7 +194,7 @@ class VictoriaLogsHandler(logging.Handler):
             self.flush()
             self._worker_run.clear()
 
-        logger.debug("worker stopped")
+        logger.debug("Worker stopped")
 
     def flush(self):
         """Flush the queue and send all entries to the log server."""
@@ -202,8 +210,25 @@ class VictoriaLogsHandler(logging.Handler):
             ok = request.post_ndjson(
                 url=url, data=entries, timeout=self._request_timeout
             )
-            if ok:
-                logger.debug("entries submitted to log server: %d", len(entries))
+            if not ok:
+                n = 0
+                for entry in entries:
+                    try:
+                        self._queue.put_nowait(entry)
+                        n += 1
+                    except queue.Full:
+                        logger.error(
+                            "Re-queued %d entries after failed send. queue full. "
+                            "%s entries discarded",
+                            n,
+                            len(entries) - n,
+                        )
+                        break
+
+                logger.info("Re-queued entries after failed send: %d", n)
+                return
+
+            logger.debug("Entries submitted to log server: %d", len(entries))
 
 
 def _create_filter(name: str):
