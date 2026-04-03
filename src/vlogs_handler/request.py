@@ -72,7 +72,7 @@ def post_ndjson(*, url: str, data: List[Any], timeout: Optional[float] = None) -
             extra={"url": url, "reason": ex.reason},
         )
 
-    except Exception as ex:
-        logger.exception("general exception", ex, extra={"url": url})
+    except Exception:
+        logger.exception("general exception", extra={"url": url})
 
     return False

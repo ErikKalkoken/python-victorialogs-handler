@@ -4,7 +4,7 @@ import threading
 import unittest
 from unittest.mock import MagicMock, patch
 
-from vlogs_handler import VictoriaLogsHandler
+from vlogs_handler import VictoriaLogsHandler, handler
 
 MODULE_PATH = "vlogs_handler.handler"
 
@@ -28,6 +28,10 @@ class TestVictoriaLogsHandler_Validations(unittest.TestCase):
         with self.assertRaises(ValueError):
             VictoriaLogsHandler(request_timeout=-1)
 
+    def test_should_should_validate_record_to_stream(self):
+        with self.assertRaises(ValueError):
+            VictoriaLogsHandler(record_to_stream=1)  # type: ignore
+
     def test_should_should_validate_shutdown_timeout(self):
         with self.assertRaises(ValueError):
             VictoriaLogsHandler(shutdown_timeout=0)
@@ -43,7 +47,7 @@ class TestVictoriaLogsHandler_Validations(unittest.TestCase):
 class TestVictoriaLogsHandler_SingleLog(unittest.TestCase):
     def setUp(self):
         self.handler = VictoriaLogsHandler(flush_interval=0.01)
-        self.logger = logging.getLogger("test_logger")
+        self.logger = logging.getLogger("test_logger.module_1.module_2")
         self.logger.addHandler(self.handler)
         self.logger.setLevel(logging.INFO)
         self.ready_event = threading.Event()
@@ -71,7 +75,7 @@ class TestVictoriaLogsHandler_SingleLog(unittest.TestCase):
         got = m.call_args.kwargs["data"][0]
         self.assertEqual(got["stream"], "test_logger")
         self.assertEqual(got["level"], "INFO")
-        self.assertEqual(got["logger"], "test_logger")
+        self.assertEqual(got["logger"], "test_logger.module_1.module_2")
         self.assertEqual(got["message"], "Alpha")
         self.assertNotIn("exception", got)
 
@@ -111,7 +115,7 @@ class TestVictoriaLogsHandler_SingleLog(unittest.TestCase):
         got = m.call_args.kwargs["data"][0]
         self.assertEqual(got["stream"], "test_logger")
         self.assertEqual(got["level"], "ERROR")
-        self.assertEqual(got["logger"], "test_logger")
+        self.assertEqual(got["logger"], "test_logger.module_1.module_2")
         self.assertEqual(got["message"], "Bravo")
         self.assertEqual("ZeroDivisionError", got["exception_name"])
         self.assertIn("ZeroDivisionError", got["exception"])
@@ -230,3 +234,28 @@ class TestVictoriaLogsHandler_MultipleLogs_2(unittest.TestCase):
         got = m.call_args.kwargs["data"]
         self.assertEqual(len(got), 1)
         self.assertEqual(got[0]["message"], "Alpha")
+
+
+class TestTopPackageName(unittest.TestCase):
+    def setUp(self):
+        self.mock_record: logging.LogRecord = MagicMock(spec=logging.LogRecord)
+
+    def test_main_module_returns_undefined(self):
+        self.mock_record.name = "__main__"
+        result = handler._top_package_name(self.mock_record)
+        self.assertEqual(result, "(undefined)")
+
+    def test_nested_module_returns_root(self):
+        self.mock_record.name = "my_app.services.auth"
+        result = handler._top_package_name(self.mock_record)
+        self.assertEqual(result, "my_app")
+
+    def test_single_module_returns_name(self):
+        self.mock_record.name = "database"
+        result = handler._top_package_name(self.mock_record)
+        self.assertEqual(result, "database")
+
+    def test_empty_string_name(self):
+        self.mock_record.name = ""
+        result = handler._top_package_name(self.mock_record)
+        self.assertEqual(result, "")

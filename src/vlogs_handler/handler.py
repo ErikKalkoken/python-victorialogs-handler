@@ -16,7 +16,7 @@ import logging
 import queue
 import threading
 import traceback
-from typing import Any, Dict, List, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from . import request
 
@@ -33,6 +33,8 @@ class VictoriaLogsHandler(logging.Handler):
             If buffer_size <= 0, the size is unlimited.
             When the buffer is full any new logs will be discarded.
             100 000 logs approximately consume 100 MB of RAM in the buffer.
+        record_to_stream: function that returns the stream value for a record.
+            The default will return the name of the top package.
         request_timeout: Timeout when sending a request to the vlogs server in seconds.
         start_worker: Whether to start the worker at initialization.
             Alternatively, the worker can be started later by calling `start()`.
@@ -75,6 +77,7 @@ class VictoriaLogsHandler(logging.Handler):
         batch_size: int = 1_000,
         flush_interval: float = 5.0,
         buffer_size: int = 100_000,
+        record_to_stream: Optional[Callable[[logging.LogRecord], str]] = None,
         request_timeout: float = 3.0,
         start_worker: bool = True,
         shutdown_timeout: float = 2.0,
@@ -87,6 +90,9 @@ class VictoriaLogsHandler(logging.Handler):
 
         if flush_interval < 0:
             raise ValueError(f"flush_interval must be >= 0: {flush_interval}")
+
+        if record_to_stream and not callable(record_to_stream):
+            raise ValueError("record_to_stream must be a callable")
 
         if request_timeout <= 0:
             raise ValueError(f"request_timeout must be > 0: {request_timeout}")
@@ -106,6 +112,7 @@ class VictoriaLogsHandler(logging.Handler):
         self._batch_size = int(batch_size)
         self._flush_interval = float(flush_interval)
         self._queue = queue.Queue(int(buffer_size))
+        self._record_to_stream = record_to_stream or _top_package_name
         self._request_timeout = float(request_timeout)
         self._shutdown_timeout = float(shutdown_timeout)
         self._url = str(url)
@@ -155,7 +162,7 @@ class VictoriaLogsHandler(logging.Handler):
 
     def _format_log_record(self, record: logging.LogRecord) -> Dict[str, Any]:
         entry = {
-            "stream": _calc_stream_from_record(record),
+            "stream": self._record_to_stream(record),
             "timestamp": record.created,
             "logger": record.name,
             "level": record.levelname,
@@ -263,13 +270,13 @@ def _format_exception(ei) -> Tuple[str, str]:
     return name, s
 
 
-def _calc_stream_from_record(record: logging.LogRecord):
+def _top_package_name(record: logging.LogRecord) -> str:
+    """Return the top package name of a log."""
     if record.name == "__main__":
-        stream = "(undefined)"
-    else:
-        s = record.name.split(".")
-        if len(s) > 1:
-            stream = s[0]
-        else:
-            stream = record.name
-    return stream
+        return "(undefined)"
+
+    s = record.name.split(".")
+    if len(s) > 1:
+        return s[0]
+
+    return record.name
