@@ -22,34 +22,6 @@ from . import request
 
 logger = logging.getLogger(__name__)
 
-_VLOGS_INSERT_PATH = "insert/jsonline"
-_VLOGS_PARAMS = "_stream_fields=stream&_time_field=timestamp&_msg_field=message"
-_STANDARD_ATTRS = {
-    "args",
-    "asctime",
-    "created",
-    "exc_info",
-    "exc_text",
-    "filename",
-    "funcName",
-    "levelname",
-    "levelno",
-    "lineno",
-    "message",
-    "module",
-    "msecs",
-    "msg",
-    "name",
-    "pathname",
-    "process",
-    "processName",
-    "relativeCreated",
-    "stack_info",
-    "taskName",
-    "thread",
-    "threadName",
-}
-
 
 class VictoriaLogsHandler(logging.Handler):
     """VictoriaLogsHandler dispatches log events to a VictoriaLogs server.
@@ -68,13 +40,43 @@ class VictoriaLogsHandler(logging.Handler):
         url: URL of the vlogs server, e.g. `"http://localhost:9428"`
     """
 
+    _STANDARD_ATTRS: frozenset[str] = frozenset(
+        {
+            "args",
+            "asctime",
+            "created",
+            "exc_info",
+            "exc_text",
+            "filename",
+            "funcName",
+            "levelname",
+            "levelno",
+            "lineno",
+            "message",
+            "module",
+            "msecs",
+            "msg",
+            "name",
+            "pathname",
+            "process",
+            "processName",
+            "relativeCreated",
+            "stack_info",
+            "taskName",
+            "thread",
+            "threadName",
+        }
+    )
+    _VLOGS_INSERT_PATH = "insert/jsonline"
+    _VLOGS_PARAMS = "_stream_fields=stream&_time_field=timestamp&_msg_field=message"
+
     def __init__(
         self,
         batch_size: int = 1_000,
         flush_interval: float = 5.0,
         buffer_size: int = 100_000,
         request_timeout: float = 3.0,
-        start_worker: bool = False,
+        start_worker: bool = True,
         shutdown_timeout: float = 2.0,
         url: str = "http://localhost:9428",
     ):
@@ -172,7 +174,7 @@ class VictoriaLogsHandler(logging.Handler):
             )
 
         for k, v in record.__dict__.items():
-            if k not in _STANDARD_ATTRS:
+            if k not in self._STANDARD_ATTRS:
                 entry[k] = v
 
         return entry
@@ -206,7 +208,7 @@ class VictoriaLogsHandler(logging.Handler):
                 break
 
         if entries:
-            url = f"{self._url}/{_VLOGS_INSERT_PATH}?{_VLOGS_PARAMS}"
+            url = f"{self._url}/{self._VLOGS_INSERT_PATH}?{self._VLOGS_PARAMS}"
             ok = request.post_ndjson(
                 url=url, data=entries, timeout=self._request_timeout
             )

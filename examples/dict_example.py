@@ -19,7 +19,6 @@ LOGGING_CONFIG = {
         "vlogs": {
             "class": "vlogs_handler.VictoriaLogsHandler",
             "level": "DEBUG",
-            "start_worker": True,
             "flush_interval": 0.5,
         },
     },

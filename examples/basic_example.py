@@ -29,9 +29,6 @@ logger.addHandler(vlogs_handler)
 # Make sure to flush logs before exiting
 atexit.register(logging.shutdown)
 
-# 4. Start the worker
-vlogs_handler.start()
-
 # Log example with structured data
 logger.info("basic_example: This is an info message", extra={"user_id": 42})
 

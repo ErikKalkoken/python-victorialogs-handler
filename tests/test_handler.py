@@ -47,7 +47,6 @@ class TestVictoriaLogsHandler_SingleLog(unittest.TestCase):
         self.logger.addHandler(self.handler)
         self.logger.setLevel(logging.INFO)
         self.ready_event = threading.Event()
-        self.handler.start()
 
     def tearDown(self):
         self.handler.close()
@@ -124,7 +123,9 @@ class TestVictoriaLogsHandler_SingleLog(unittest.TestCase):
 @patch(MODULE_PATH + ".request.post_ndjson")
 class TestVictoriaLogsHandler_MultipleLogs(unittest.TestCase):
     def setUp(self):
-        self.handler = VictoriaLogsHandler(batch_size=3, flush_interval=0.01)
+        self.handler = VictoriaLogsHandler(
+            batch_size=3, flush_interval=0.01, start_worker=False
+        )
         self.logger = logging.getLogger("test_logger")
         self.logger.addHandler(self.handler)
         self.logger.setLevel(logging.INFO)
@@ -169,7 +170,9 @@ class TestVictoriaLogsHandler_MultipleLogs(unittest.TestCase):
 @patch(MODULE_PATH + ".request.post_ndjson")
 class TestVictoriaLogsHandler_MultipleLogs_2(unittest.TestCase):
     def setUp(self):
-        self.handler = VictoriaLogsHandler(batch_size=3, flush_interval=5)
+        self.handler = VictoriaLogsHandler(
+            batch_size=3, flush_interval=5, start_worker=False
+        )
         self.logger = logging.getLogger("test_logger")
         self.logger.addHandler(self.handler)
         self.logger.setLevel(logging.INFO)
