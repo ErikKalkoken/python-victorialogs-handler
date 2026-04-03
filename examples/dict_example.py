@@ -1,6 +1,6 @@
+import atexit
 import logging
 import logging.config
-import time
 
 # Define the configuration dictionary
 LOGGING_CONFIG = {
@@ -20,6 +20,7 @@ LOGGING_CONFIG = {
             "class": "vlogs_handler.VictoriaLogsHandler",
             "level": "DEBUG",
             "start_worker": True,
+            "flush_interval": 0.5,
         },
     },
     "loggers": {
@@ -33,6 +34,9 @@ LOGGING_CONFIG = {
 # Apply the configuration
 logging.config.dictConfig(LOGGING_CONFIG)
 
+# Make sure to flush logs before exiting
+atexit.register(logging.shutdown)
+
 # Create and use the logger
 logger = logging.getLogger(__name__)
 
@@ -40,6 +44,3 @@ logger = logging.getLogger(__name__)
 logger.debug("This is a debug message (visible in console)")
 logger.info("This is an info message (visible in console and file)")
 logger.error("Something went wrong!")
-
-# Give the worker the chance to send the logs, before exiting.
-time.sleep(1)

@@ -5,8 +5,8 @@ Note that the script assumes that there is a vlogs server running
 on the same system at the default URL.
 """
 
+import atexit
 import logging
-import time
 
 from vlogs_handler import VictoriaLogsHandler
 
@@ -21,10 +21,13 @@ log_format = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(messa
 console_handler.setFormatter(log_format)
 logger.addHandler(console_handler)
 
-# 2. Add a handler for VictoriaLogs
+# Add a handler for VictoriaLogs
 vlogs_handler = VictoriaLogsHandler()
 vlogs_handler.setLevel(logging.DEBUG)
 logger.addHandler(vlogs_handler)
+
+# Make sure to flush logs before exiting
+atexit.register(logging.shutdown)
 
 # 4. Start the worker
 vlogs_handler.start()
@@ -37,6 +40,3 @@ try:
     _ = 1 / 0
 except Exception:
     logger.exception("This is an error")
-
-# Give the worker the chance to send the logs, before exiting.
-time.sleep(1)

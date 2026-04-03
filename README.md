@@ -1,6 +1,6 @@
 # victorialogs-handler
 
-A Python log handler for Victoria Logs.
+A Python log handler for VictoriaLogs.
 
 [![release](https://img.shields.io/pypi/v/python-victorialogs-handler?label=release)](https://pypi.org/project/python-victorialogs-handler/)
 [![python](https://img.shields.io/pypi/pyversions/python-victorialogs-handler)](https://pypi.org/project/python-victorialogs-handler/)

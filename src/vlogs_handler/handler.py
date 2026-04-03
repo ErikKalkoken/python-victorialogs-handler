@@ -1,6 +1,6 @@
 """Module handler provides the implementation of the vlogs handler.
 
-- The handler collects log events and sends them to the Victoria Logs server
+- The handler collects log events and sends them to the VictoriaLogs server
 on a background thread.
 - The handler uses the vlogs's JSON Stream API for data ingestion.
 - Multiple logs are batched together into a single request using the ndjson protocol
@@ -14,7 +14,6 @@ import json
 import logging
 import queue
 import threading
-import time
 import traceback
 from typing import Any, Dict, List, Tuple
 
@@ -52,39 +51,40 @@ _STANDARD_ATTRS = {
 
 
 class VictoriaLogsHandler(logging.Handler):
-    """VictoriaLogsHandler dispatches log events to a Victoria Logs server.
+    """VictoriaLogsHandler dispatches log events to a VictoriaLogs server.
 
     Args:
-        batch_size: Upper limit for how many logs are combined into one request
-            to the vlogs server.
-        request_timeout: Timeout for sending a request to the vlogs server in seconds.
+        batch_size: New logs are submitted immediately once a threshold is reached.
+        flush_interval: New logs are submitted every x seconds.
+        request_timeout: Timeout when sending a request to the vlogs server in seconds.
         start_worker: Whether to start the worker at initialization.
             Alternatively, the worker can be started later by calling `start()`.
+        shutdown_timeout: Timeout when waiting for the worker to shut down.
         url: URL of the vlogs server, e.g. `"http://localhost:9428"`
-        worker_timeout: time a worker will wait to potentially collect
-            additional logs for each request
     """
-
-    # TODO: add validation checks
 
     def __init__(
         self,
-        batch_size: int = 50,
-        request_timeout: float = 5.0,
+        batch_size: int = 1000,
+        flush_interval: float = 5.0,
+        request_timeout: float = 3.0,
         start_worker: bool = False,
+        shutdown_timeout: float = 2.0,
         url: str = "http://localhost:9428",
-        worker_timeout: float = 0.5,
     ):
         super().__init__()
 
         if batch_size < 1:
             raise ValueError(f"batch_size must be >= 1 {batch_size}")
 
+        if flush_interval < 0:
+            raise ValueError(f"flush_interval must be >= 0: {flush_interval}")
+
         if request_timeout <= 0:
             raise ValueError(f"request_timeout must be > 0: {request_timeout}")
 
-        if worker_timeout < 0:
-            raise ValueError(f"worker_timeout must be >= 0: {worker_timeout}")
+        if shutdown_timeout <= 0:
+            raise ValueError(f"shutdown_timeout must be > 0: {shutdown_timeout}")
 
         if not request.is_url(url):
             raise ValueError(f"url is not valid: {url}")
@@ -96,41 +96,45 @@ class VictoriaLogsHandler(logging.Handler):
         self.addFilter(_create_filter(name))
 
         self._batch_size = int(batch_size)
+        self._flush_interval = float(flush_interval)
         self._queue = queue.Queue(-1)
         self._request_timeout = float(request_timeout)
+        self._shutdown_timeout = float(shutdown_timeout)
         self._url = str(url)
-        self._worker_timeout = float(worker_timeout)
 
         # Start background worker
         self._worker_thread = threading.Thread(target=self._worker, daemon=True)
         self._worker_started = False
         self._worker_lock = threading.Lock()
+        self._worker_run = threading.Event()
+        self._worker_shutdown = threading.Event()
         if start_worker:
             self.start()
 
     def close(self):
         """Cleanup resources and flush the queue."""
-        self._queue.put(None)  # "Poison pill" to tell worker to stop
-        self._worker_thread.join(timeout=self._request_timeout + 1)
-        self._worker_started = False
+        with self._worker_lock:
+            if self._worker_shutdown.is_set():
+                return  # run shutdown once only
+
+            self._worker_shutdown.set()
+
+        self._worker_run.set()
+        self._worker_thread.join(timeout=self._flush_interval)
+        self.flush()
         super().close()
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
             log_entry = self._format_log_record(record)
-            self._queue.put(log_entry)
+            self._queue.put_nowait(log_entry)
         except Exception:
             logger.exception("emitting record")
             self.handleError(record)
+            return
 
-    def start(self):
-        """Start the worker. Do nothing when the worker is already running."""
-        with self._worker_lock:
-            if self._worker_started:
-                return
-
-            self._worker_started = True
-            self._worker_thread.start()
+        if self._queue.qsize() > self._batch_size:
+            self._worker_run.set()
 
     def _format_log_record(self, record: logging.LogRecord) -> Dict[str, Any]:
         entry = {
@@ -158,31 +162,41 @@ class VictoriaLogsHandler(logging.Handler):
 
         return entry
 
+    def start(self):
+        """Start the worker. Do nothing when the worker is already running."""
+        with self._worker_lock:
+            if self._worker_started:
+                return
+
+            self._worker_started = True
+            self._worker_thread.start()
+
+        logger.debug("worker started")
+
     def _worker(self):
+        while not self._worker_shutdown.is_set():
+            self._worker_run.wait(timeout=self._flush_interval)
+            self.flush()
+            self._worker_run.clear()
+
+        logger.debug("worker stopped")
+
+    def flush(self):
+        """Flush the queue and send all entries to the log server."""
         entries: List[Dict[str, Any]] = []
-        is_shutdown = False
-        while not is_shutdown:
-            entry = self._queue.get()
-            if entry is None:
-                break  # Shutdown signal
+        while True:
+            try:
+                entries.append(self._queue.get_nowait())
+            except queue.Empty:
+                break
 
-            entries = [entry]
-            time.sleep(self._worker_timeout)  # wait to collect more logs for batch
-            while len(entries) < self._batch_size:
-                try:
-                    entry = self._queue.get_nowait()
-                except queue.Empty:
-                    break
-
-                if entry is None:
-                    is_shutdown = True
-                    break  # Shutdown signal
-
-                entries.append(entry)
-
+        if entries:
             self._send(entries)
 
     def _send(self, entries: List[Dict[str, Any]]):
+        if not entries:
+            return
+
         lines = []
         for entry in entries:
             try:
@@ -194,7 +208,9 @@ class VictoriaLogsHandler(logging.Handler):
 
         data = "\n".join(lines)
         url = f"{self._url}/{_VLOGS_INSERT_PATH}?{_VLOGS_PARAMS}"
-        request.post_ndjson(url=url, data=data, timeout=self._request_timeout)
+        ok = request.post_ndjson(url=url, data=data, timeout=self._request_timeout)
+        if ok:
+            logger.debug("entries to log server sent: %d", len(entries))
 
 
 def _create_filter(name: str):

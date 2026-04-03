@@ -1,6 +1,6 @@
-"""A log handler for Victoria Logs."""
+"""A log handler for VictoriaLogs."""
 
 from .handler import VictoriaLogsHandler  # noqa: F401
 
-__title__ = "Victoria Logs Handler"
-__version__ = "0.1.0dev4"
+__title__ = "VictoriaLogs Handler"
+__version__ = "0.1.0dev5"
