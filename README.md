@@ -11,11 +11,20 @@ A Python log handler for VictoriaLogs.
 > [!IMPORTANT]
 > STATUS: In development. The API is not yet stable.
 
+## Content
+
+- [Description](#description)
+- [Features](#features)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Technical Documentation](#technical-documentation)
+- [API documentation](#api-documentation)
+
 ## Description
 
 **victorialogs-handler** is a high-performance Python log handler tailored for [VictoriaLogs](https://victoriametrics.com/products/victorialogs/). It integrates seamlessly with Python’s native logging module, allowing you to stream log events to a VictoriaLogs instance with minimal configuration and zero friction.
 
-## Key Features
+## Features
 
 - **Asynchronous Processing**: Log events are queued and dispatched in a dedicated background thread, ensuring your application's main execution flow remains non-blocking and highly responsive.
 
@@ -69,13 +78,13 @@ logger.info("This is an info message")
 
 Please see the directory `/examples` for additional examples on how to use the handler.
 
-## Technical details
+## Technical documentation
 
-This section documents technical details of the solution.
+This section documents technical aspects of the handler.
 
-### Technical process
+### Process Flow
 
-The vlogs handler works as follows:
+The process flow of the vlogs handler is as follows:
 
 1. When a a log event is received, it is converted into JSON and stored in the buffer
 2. At an interval (e.g. 5 second) or when a threshold is reached (e.g. 125 logs) a background worker starts the process of submitting logs from the buffer to the log server
@@ -111,3 +120,7 @@ VictoriaLogs handles three fields in a special:
 - `_stream`: The source of a log event, which is used to group and filter logs. This field is mapped to `stream`.
 
 For more information please also see [VictoriaLogs Data model](https://docs.victoriametrics.com/victorialogs/keyconcepts/#data-model).
+
+## API documentation
+
+For the documentation of configuration options and defaults please see the [API documentation](https://erikkalkoken.github.io/python-victorialogs-handler/).

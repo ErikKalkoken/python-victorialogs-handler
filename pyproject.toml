@@ -29,6 +29,7 @@ Home = "https://github.com/ErikKalkoken/python-victorialogs-handler"
 
 [project.optional-dependencies]
 test = ["coverage"]
+docs = ["pdoc"]
 
 [tool.flit.module]
 name = "vlogs_handler"
