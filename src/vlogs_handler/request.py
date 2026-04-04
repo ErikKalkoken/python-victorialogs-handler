@@ -1,14 +1,12 @@
 """Module request provides the functionality to send HTTP requests."""
 
-import io
-import json
 import logging
 import urllib.error
 import urllib.parse
 import urllib.request
 from typing import Any, List, Optional
 
-from . import encoder
+import orjson  # significantly better performance than standard json library
 
 logger = logging.getLogger(__name__)
 
@@ -33,16 +31,17 @@ def post_ndjson(*, url: str, data: List[Any], timeout: Optional[float] = None) -
             Settings it to None will disable the timeout.
     """
 
-    with io.StringIO() as buffer:
-        for obj in data:
-            try:
-                json.dump(obj, buffer, cls=encoder.JSON)
-                buffer.write("\n")
-            except (TypeError, ValueError, RecursionError):
-                logger.exception("convert obj to JSON. Discarded", extra={"entry": obj})
-                continue
+    chunks: List[bytes] = []
+    for obj in data:
+        try:
+            chunks.append(orjson.dumps(obj, option=orjson.OPT_APPEND_NEWLINE))
+        except (TypeError, ValueError):
+            logger.exception(
+                "Could not convert obj to JSON. Discarded", extra={"log": obj}
+            )
+            continue
 
-        data_bytes = buffer.getvalue().encode("utf-8")
+    data_bytes = b"".join(chunks)
 
     req = urllib.request.Request(url, data=data_bytes, method="POST")
     req.add_header("Content-Type", "application/x-ndjson")

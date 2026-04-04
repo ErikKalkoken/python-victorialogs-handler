@@ -26,8 +26,6 @@ STATUS: In development
 
 - **Standard Configuration Support**: Fully compatible with `logging.config.dictConfig`, making it easy to drop into frameworks like Django, Flask, or FastAPI.
 
-- **Zero dependency**: Does not use 3rd party libraries to avoid potential conflicts when processing log events from any 3rd party library.
-
 ## Installation
 
 The handler can be installed with PIP from PyPI:

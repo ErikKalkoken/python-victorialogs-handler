@@ -1,11 +1,12 @@
 """Module handler provides the implementation of the vlogs handler.
 
 - The handler collects log events and sends them asynchronously to the vlogs server
-- Log records are converted into JSON objects. The handler uses an extension
-of Python's default json encoder to serialize additional types and improve robustness.
+- Log records are converted into JSON objects.
+    The handler uses orjson for significantly better performance
+    and support of additional data types
 - The handler uses the vlogs's JSON Stream API for data ingestion.
 - Logs are submitted when the flush interval expires or when the batch size is exceeded
-- Multiple logs are batched together into a single request using the ndjson protocol
+- Multiple logs are chunked together into a single request using the ndjson protocol
     to minimize the number of requests.
 - When submission to the log server fails, logs are returns into the buffer
     for later retry.
