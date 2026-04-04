@@ -1,16 +1,4 @@
-"""Module handler provides the implementation of the vlogs handler.
-
-- The handler collects log events and sends them asynchronously to the vlogs server
-- Log records are converted into JSON objects.
-    The handler uses orjson for significantly better performance
-    and support of additional data types
-- The handler uses the vlogs's JSON Stream API for data ingestion.
-- Logs are submitted when the flush interval expires or when the batch size is exceeded
-- Multiple logs are chunked together into a single request using the ndjson protocol
-    to minimize the number of requests.
-- When submission to the log server fails, logs are returns into the buffer
-    for later retry.
-"""
+"""Module handler provides the implementation of the vlogs handler."""
 
 import io
 import logging
@@ -25,7 +13,6 @@ import orjson
 from . import request
 
 logger = logging.getLogger(__name__)
-
 
 _STANDARD_ATTRS: frozenset[str] = frozenset(
     {
@@ -57,7 +44,8 @@ _STANDARD_ATTRS: frozenset[str] = frozenset(
 
 
 class VictoriaLogsHandler(logging.Handler):
-    """VictoriaLogsHandler dispatches log events to a VictoriaLogs server.
+    """VictoriaLogsHandler is a standard log handler
+    that dispatches log events to a VictoriaLogs server.
 
     Args:
         batch_size: New logs are submitted immediately once this threshold is reached.
@@ -67,8 +55,8 @@ class VictoriaLogsHandler(logging.Handler):
             When the buffer is full any new logs will be discarded.
             100 000 logs consume approx. 80-100 MB of RAM.
         chunk_size: Maximum number of logs send per request to the log server.
-        record_to_stream: function that returns the stream value for a record.
-            The default will return the name of the top package.
+        record_to_stream: A function that returns the value for the `stream`field
+            for a log record. The default will return the name of the top package.
         request_timeout: Timeout when sending a request to the vlogs server in seconds.
         start_worker: Whether to start the worker at initialization.
             Alternatively, the worker can be started later by calling `start()`.
@@ -88,6 +76,8 @@ class VictoriaLogsHandler(logging.Handler):
         start_worker: bool = True,
         url: str = "http://localhost:9428",
     ):
+        """Initializes the instance."""
+
         super().__init__()
 
         if batch_size < 1:
@@ -162,6 +152,7 @@ class VictoriaLogsHandler(logging.Handler):
         super().close()
 
     def emit(self, record: logging.LogRecord) -> None:
+        """@private"""
         try:
             log = _serialize_log_to_json(record, self._record_to_stream)
 
@@ -189,7 +180,7 @@ class VictoriaLogsHandler(logging.Handler):
                 self._worker_run.set()
 
     def start(self):
-        """Start the worker. Do nothing when the worker is already running."""
+        """Start the worker. Is a no-op when the worker is already running."""
         with self._lock:
             if self._worker_started:
                 return
