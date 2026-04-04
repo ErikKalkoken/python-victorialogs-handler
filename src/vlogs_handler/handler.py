@@ -18,11 +18,42 @@ import queue
 import threading
 import traceback
 import urllib.parse
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
+
+import orjson
 
 from . import request
 
 logger = logging.getLogger(__name__)
+
+
+_STANDARD_ATTRS: frozenset[str] = frozenset(
+    {
+        "args",
+        "asctime",
+        "created",
+        "exc_info",
+        "exc_text",
+        "filename",
+        "funcName",
+        "levelname",
+        "levelno",
+        "lineno",
+        "message",
+        "module",
+        "msecs",
+        "msg",
+        "name",
+        "pathname",
+        "process",
+        "processName",
+        "relativeCreated",
+        "stack_info",
+        "taskName",
+        "thread",
+        "threadName",
+    }
+)
 
 
 class VictoriaLogsHandler(logging.Handler):
@@ -34,7 +65,7 @@ class VictoriaLogsHandler(logging.Handler):
         buffer_size: Maximum number of logs the buffer can hold.
             If buffer_size <= 0, the size is unlimited (not recommended).
             When the buffer is full any new logs will be discarded.
-            100 000 logs approximately consume 100 MB of RAM in the buffer.
+            100 000 logs consume approx. 80-100 MB of RAM.
         chunk_size: Maximum number of logs send per request to the log server.
         record_to_stream: function that returns the stream value for a record.
             The default will return the name of the top package.
@@ -44,34 +75,6 @@ class VictoriaLogsHandler(logging.Handler):
         shutdown_timeout: Timeout when waiting for the worker to shut down.
         url: URL of the vlogs server, e.g. `"http://localhost:9428"`
     """
-
-    _STANDARD_ATTRS: frozenset[str] = frozenset(
-        {
-            "args",
-            "asctime",
-            "created",
-            "exc_info",
-            "exc_text",
-            "filename",
-            "funcName",
-            "levelname",
-            "levelno",
-            "lineno",
-            "message",
-            "module",
-            "msecs",
-            "msg",
-            "name",
-            "pathname",
-            "process",
-            "processName",
-            "relativeCreated",
-            "stack_info",
-            "taskName",
-            "thread",
-            "threadName",
-        }
-    )
 
     def __init__(
         self,
@@ -160,46 +163,30 @@ class VictoriaLogsHandler(logging.Handler):
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
-            log_entry = self._format_log_record(record)
-            self._buffer.put_nowait(log_entry)
+            log = _serialize_log_to_json(record, self._record_to_stream)
+
+        except Exception:
+            logger.exception("serializing log: %s", record)
+            self.handleError(record)
+            return
+
+        try:
+            self._buffer.put_nowait(log)
 
         except queue.Full:
-            logger.error("Buffer full. Discarding new log.")
+            logger.error("Buffer full. Discarding new log: %s", log)
             return
 
         except Exception:
-            logger.exception("Emitting record")
+            logger.exception("Emitting record: %s", log)
             self.handleError(record)
             return
 
         with self._lock:
             self._added_count += 1
             if self._added_count > self._batch_size:
+                self._added_count = 0
                 self._worker_run.set()
-
-    def _format_log_record(self, record: logging.LogRecord) -> Dict[str, Any]:
-        log = {
-            "stream": self._record_to_stream(record),
-            "timestamp": record.created,
-            "level": record.levelname,
-            "logger": record.name,
-            "module": record.module,
-            "function": record.funcName,
-            "line_number": record.lineno,
-            "message": record.getMessage(),
-            "process_name": record.processName,
-            "process": record.process,
-            "thread_name": record.threadName,
-            "thread": record.thread,
-        }
-        if record.exc_info:
-            log["exception_name"], log["exception"] = _format_exception(record.exc_info)
-
-        for k, v in record.__dict__.items():
-            if k not in self._STANDARD_ATTRS:
-                log[k] = v
-
-        return log
 
     def start(self):
         """Start the worker. Do nothing when the worker is already running."""
@@ -215,19 +202,18 @@ class VictoriaLogsHandler(logging.Handler):
     def _worker(self):
         while not self._worker_shutdown.is_set():
             self._worker_run.wait(timeout=self._flush_interval)
-            with self._lock:
-                self._added_count = 0
-            self.flush()
             self._worker_run.clear()
+            self.flush()
 
         logger.debug("Worker stopped")
 
     def flush(self):
         """Flush the buffer and send all logs to the log server."""
-        failed: List[Dict[str, Any]] = []
+        failed: List[bytes] = []
         done = False
+
         while not done:
-            logs: List[Dict[str, Any]] = []
+            logs: List[bytes] = []
             while len(logs) < self._chunk_size:
                 try:
                     logs.append(self._buffer.get_nowait())
@@ -237,13 +223,17 @@ class VictoriaLogsHandler(logging.Handler):
 
             if logs:
                 ok = request.post_ndjson(
-                    url=self._vlogs_url, data=logs, timeout=self._request_timeout
+                    url=self._vlogs_url, objs=logs, timeout=self._request_timeout
                 )
                 if not ok:
                     failed += logs
-                    logger.warning("Logs failed to send to log server: %d", len(logs))
+                    logger.warning(
+                        "Failed to transmit logs to log server: %d", len(logs)
+                    )
                 else:
-                    logger.debug("Logs submitted to log server: %d", len(logs))
+                    logger.debug(
+                        "Log transmitted successfully to log server: %d", len(logs)
+                    )
 
         if not failed:
             return
@@ -261,6 +251,35 @@ class VictoriaLogsHandler(logging.Handler):
                 break
 
         logger.debug("Saved logs to buffer after failed send: %d", n)
+
+
+def _serialize_log_to_json(
+    record: logging.LogRecord, record_to_stream: Callable[[logging.LogRecord], str]
+) -> bytes:
+    """Serialize a log record into a JSON object and return it."""
+    obj = {
+        "stream": record_to_stream(record),
+        "timestamp": record.created,
+        "level": record.levelname,
+        "logger": record.name,
+        "module": record.module,
+        "function": record.funcName,
+        "line_number": record.lineno,
+        "message": record.getMessage(),
+        "process_name": record.processName,
+        "process": record.process,
+        "thread_name": record.threadName,
+        "thread": record.thread,
+    }
+    if record.exc_info:
+        obj["exception_name"], obj["exception"] = _format_exception(record.exc_info)
+
+    for k, v in record.__dict__.items():
+        if k not in _STANDARD_ATTRS:
+            obj[k] = v
+
+    log = orjson.dumps(obj, default=str)
+    return log
 
 
 def _create_filter(name: str):

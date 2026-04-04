@@ -5,6 +5,8 @@ import threading
 import unittest
 from unittest.mock import MagicMock, patch
 
+import orjson
+
 from vlogs_handler import VictoriaLogsHandler, handler
 
 MODULE_PATH = "vlogs_handler.handler"
@@ -93,7 +95,7 @@ class TestVictoriaLogsHandler_SingleLog(unittest.TestCase):
         self.assertTrue(called_in_time)
 
         self.assertEqual(m.call_count, 1)
-        got = m.call_args.kwargs["data"][0]
+        got = orjson.loads(m.call_args.kwargs["objs"][0])
         self.assertEqual(got["stream"], "test_logger")
         self.assertEqual(got["level"], "INFO")
         self.assertEqual(got["logger"], "test_logger.module_1.module_2")
@@ -113,10 +115,10 @@ class TestVictoriaLogsHandler_SingleLog(unittest.TestCase):
         self.assertTrue(called_in_time)
 
         self.assertEqual(m.call_count, 1)
-        got = m.call_args.kwargs["data"][0]
+        got = orjson.loads(m.call_args.kwargs["objs"][0])
         self.assertEqual(got["message"], "Alpha")
         self.assertEqual(got["planet"], "Jupiter")
-        self.assertEqual(got["deadline"], my_date)
+        self.assertEqual(got["deadline"], "2026-01-11T12:15:42.000099+00:00")
 
     def test_should_send_exception_log(self, m: MagicMock):
         # given
@@ -133,7 +135,7 @@ class TestVictoriaLogsHandler_SingleLog(unittest.TestCase):
         self.assertTrue(called_in_time)
 
         self.assertEqual(m.call_count, 1)
-        got = m.call_args.kwargs["data"][0]
+        got = orjson.loads(m.call_args.kwargs["objs"][0])
         self.assertEqual(got["stream"], "test_logger")
         self.assertEqual(got["level"], "ERROR")
         self.assertEqual(got["logger"], "test_logger.module_1.module_2")
@@ -185,11 +187,11 @@ class TestVictoriaLogsHandler_MultipleLogs(unittest.TestCase):
         self.assertTrue(called_in_time)
 
         self.assertEqual(m.call_count, 1)
-        got = m.call_args.kwargs["data"]
+        got = m.call_args.kwargs["objs"]
         self.assertEqual(len(got), 2)
 
-        self.assertEqual(got[0]["message"], "Alpha")
-        self.assertEqual(got[1]["message"], "Bravo")
+        self.assertEqual(orjson.loads(got[0])["message"], "Alpha")
+        self.assertEqual(orjson.loads(got[1])["message"], "Bravo")
 
 
 @patch(MODULE_PATH + ".request.post_ndjson")
@@ -237,7 +239,7 @@ class TestVictoriaLogsHandler_MultipleLogs_2(unittest.TestCase):
 
         self.assertEqual(m.call_count, 1)
 
-        self.assertEqual(len(m.call_args.kwargs["data"]), 4)
+        self.assertEqual(len(m.call_args.kwargs["objs"]), 4)
 
     def test_handler_should_shutdown_gracefully(self, m: MagicMock):
         # given
@@ -251,9 +253,9 @@ class TestVictoriaLogsHandler_MultipleLogs_2(unittest.TestCase):
 
         # then
         self.assertEqual(m.call_count, 1)
-        got = m.call_args.kwargs["data"]
+        got = m.call_args.kwargs["objs"]
         self.assertEqual(len(got), 1)
-        self.assertEqual(got[0]["message"], "Alpha")
+        self.assertEqual(orjson.loads(got[0])["message"], "Alpha")
 
 
 @patch(MODULE_PATH + ".request.post_ndjson")
@@ -299,8 +301,8 @@ class TestVictoriaLogsHandler_Flush(unittest.TestCase):
         # then
         self.assertEqual(handler._buffer.qsize(), 0)
         self.assertEqual(m.call_count, 2)
-        self.assertEqual(len(m.call_args_list[0].kwargs["data"]), 3)
-        self.assertEqual(len(m.call_args_list[1].kwargs["data"]), 1)
+        self.assertEqual(len(m.call_args_list[0].kwargs["objs"]), 3)
+        self.assertEqual(len(m.call_args_list[1].kwargs["objs"]), 1)
 
 
 def add_to_queue(queue: queue.Queue, items):
@@ -337,6 +339,4 @@ class TestTopPackageName(unittest.TestCase):
     def test_empty_string_name(self):
         self.mock_record.name = ""
         result = handler._top_package_name(self.mock_record)
-        self.assertEqual(result, "")
-        self.assertEqual(result, "")
         self.assertEqual(result, "")

@@ -45,13 +45,13 @@ def make_urlopen_fake(exception=None):
 class TestPostNdjson(unittest.TestCase):
     def setUp(self) -> None:
         self.url = "https://api.example.com/logs"
-        self.data = [{"event": "test"}, {"event": "more_data"}]
+        self.objs = [b'{"event":"test"}', b'{"event":"more_data"}']
 
     def test_should_submit_successfully(self):
         # when
         with patch(MODULE_PATH + ".urllib.request.urlopen") as m:
             m.side_effect, requests_history = make_urlopen_fake()
-            got = request.post_ndjson(url=self.url, data=self.data)
+            got = request.post_ndjson(url=self.url, objs=self.objs)
 
         # then
         self.assertTrue(got)
@@ -59,7 +59,7 @@ class TestPostNdjson(unittest.TestCase):
         req = requests_history[0]
         self.assertEqual(req.full_url, self.url)
         self.assertEqual(req.get_header("Content-type"), "application/x-ndjson")
-        self.assertEqual(req.data, b'{"event":"test"}\n{"event":"more_data"}\n')
+        self.assertEqual(req.data, b'{"event":"test"}\n{"event":"more_data"}')
 
     def test_should_handle_http_exception(self):
         # when
@@ -67,7 +67,7 @@ class TestPostNdjson(unittest.TestCase):
             m.side_effect, requests_history = make_urlopen_fake(
                 exception=make_http_error()
             )
-            got = request.post_ndjson(url=self.url, data=self.data)
+            got = request.post_ndjson(url=self.url, objs=self.objs)
 
         # then
         self.assertFalse(got)
@@ -79,7 +79,7 @@ class TestPostNdjson(unittest.TestCase):
             m.side_effect, requests_history = make_urlopen_fake(
                 exception=urllib.error.URLError("Network is unreachable")
             )
-            got = request.post_ndjson(url=self.url, data=self.data)
+            got = request.post_ndjson(url=self.url, objs=self.objs)
 
         # then
         self.assertFalse(got)
@@ -89,7 +89,7 @@ class TestPostNdjson(unittest.TestCase):
         # when
         with patch(MODULE_PATH + ".urllib.request.urlopen") as m:
             m.side_effect, requests_history = make_urlopen_fake(exception=RuntimeError)
-            got = request.post_ndjson(url=self.url, data=self.data)
+            got = request.post_ndjson(url=self.url, objs=self.objs)
 
         # then
         self.assertFalse(got)
@@ -111,5 +111,4 @@ class TestIsURL(unittest.TestCase):
 
         for tc in cases:
             with self.subTest(url=tc.url):
-                self.assertIs(request.is_url(tc.url), tc.want)
                 self.assertIs(request.is_url(tc.url), tc.want)

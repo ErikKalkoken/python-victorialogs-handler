@@ -4,9 +4,7 @@ import logging
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Any, List, Optional
-
-import orjson  # significantly better performance than standard json library
+from typing import List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -20,35 +18,26 @@ def is_url(url: str) -> bool:
         return False
 
 
-def post_ndjson(*, url: str, data: List[Any], timeout: Optional[float] = None) -> bool:
+def post_ndjson(
+    *, url: str, objs: List[bytes], timeout: Optional[float] = None
+) -> bool:
     """Send a POST request with the ndjson protocol
     and report whether it was successful.
 
     Args:
         url: request URL
-        data: list of objects to send
+        data: list of JSON objects to send
         timeout: request timeout in seconds.
             Settings it to None will disable the timeout.
     """
 
-    chunks: List[bytes] = []
-    for obj in data:
-        try:
-            chunks.append(orjson.dumps(obj, option=orjson.OPT_APPEND_NEWLINE))
-        except (TypeError, ValueError):
-            logger.exception(
-                "Could not convert obj to JSON. Discarded", extra={"log": obj}
-            )
-            continue
-
-    data_bytes = b"".join(chunks)
-
-    req = urllib.request.Request(url, data=data_bytes, method="POST")
+    data = b"\n".join(objs)
+    req = urllib.request.Request(url, data=data, method="POST")
     req.add_header("Content-Type", "application/x-ndjson")
 
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
-            logger.debug("Submitted: %d %s", resp.status, resp.reason)
+            logger.debug("Submitted: %s %d %s", url, resp.status, resp.reason)
             return True
 
     except urllib.error.HTTPError as ex:
