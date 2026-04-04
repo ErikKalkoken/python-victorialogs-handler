@@ -8,3 +8,4 @@ __version__ = "0.1.0dev6"
 # TODO
 # [ ] - Split very large requests
 # [ ] - Consider using a persistent queue
+# [ ] - Enable logging and switch to full debug logging in prod for testing

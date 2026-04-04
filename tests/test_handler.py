@@ -1,5 +1,6 @@
 import datetime as dt
 import logging
+import queue
 import threading
 import unittest
 from unittest.mock import MagicMock, patch
@@ -248,6 +249,32 @@ class TestVictoriaLogsHandler_MultipleLogs_2(unittest.TestCase):
         self.assertEqual(got[0]["message"], "Alpha")
 
 
+@patch(MODULE_PATH + ".request.post_ndjson")
+class TestVictoriaLogsHandler_Flush(unittest.TestCase):
+    def test_handler_should_process_queue_until_empty(self, m: MagicMock):
+        # given
+        m.return_value = True
+        handler = VictoriaLogsHandler(batch_size=3, start_worker=False)
+        add_to_queue(handler._queue, make_items(3))
+        # when
+        handler.flush()
+        # then
+        self.assertEqual(handler._queue.qsize(), 0)
+        self.assertEqual(m.call_count, 1)
+
+
+def add_to_queue(queue: queue.Queue, items):
+    for it in items:
+        queue.put_nowait(it)
+
+
+def make_items(n: int) -> list:
+    objs = []
+    for i in range(1, n + 1):
+        objs.append({"name": f"item#{i}"})
+    return objs
+
+
 class TestTopPackageName(unittest.TestCase):
     def setUp(self):
         self.mock_record: logging.LogRecord = MagicMock(spec=logging.LogRecord)
@@ -270,4 +297,6 @@ class TestTopPackageName(unittest.TestCase):
     def test_empty_string_name(self):
         self.mock_record.name = ""
         result = handler._top_package_name(self.mock_record)
+        self.assertEqual(result, "")
+        self.assertEqual(result, "")
         self.assertEqual(result, "")

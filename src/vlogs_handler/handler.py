@@ -144,8 +144,10 @@ class VictoriaLogsHandler(logging.Handler):
 
             self._worker_shutdown.set()
 
-        self._worker_run.set()
-        self._worker_thread.join(timeout=self._flush_interval)
+        if self._worker_started:
+            self._worker_run.set()
+            self._worker_thread.join(timeout=self._flush_interval)
+
         self.flush()
         super().close()
 
