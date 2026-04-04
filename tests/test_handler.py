@@ -13,7 +13,8 @@ MODULE_PATH = "vlogs_handler.handler"
 class TestVictoriaLogsHandler_Init(unittest.TestCase):
     def test_should_init_with_defaults(self):
         handler = VictoriaLogsHandler()
-        self.assertEqual(handler._batch_size, 1000)
+        self.assertEqual(handler._batch_size, 125)
+        self.assertEqual(handler._chunk_size, 1000)
         self.assertEqual(handler._flush_interval, 5.0)
         self.assertEqual(handler._request_timeout, 3.0)
         self.assertEqual(handler._shutdown_timeout, 2.0)
@@ -29,6 +30,13 @@ class TestVictoriaLogsHandler_Init(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             VictoriaLogsHandler(batch_size=-1)
+
+    def test_should_validate_bulk_size(self):
+        with self.assertRaises(ValueError):
+            VictoriaLogsHandler(chunk_size=0)
+
+        with self.assertRaises(ValueError):
+            VictoriaLogsHandler(chunk_size=-1)
 
     def test_should_should_validate_flush_interval(self):
         with self.assertRaises(ValueError):
@@ -229,8 +237,7 @@ class TestVictoriaLogsHandler_MultipleLogs_2(unittest.TestCase):
 
         self.assertEqual(m.call_count, 1)
 
-        got = m.call_args.kwargs["data"]
-        self.assertEqual(len(got), 4)
+        self.assertEqual(len(m.call_args.kwargs["data"]), 4)
 
     def test_handler_should_shutdown_gracefully(self, m: MagicMock):
         # given
@@ -251,16 +258,49 @@ class TestVictoriaLogsHandler_MultipleLogs_2(unittest.TestCase):
 
 @patch(MODULE_PATH + ".request.post_ndjson")
 class TestVictoriaLogsHandler_Flush(unittest.TestCase):
-    def test_handler_should_process_queue_until_empty(self, m: MagicMock):
+    def test_should_empty_queue_when_send_successful(self, m: MagicMock):
         # given
         m.return_value = True
-        handler = VictoriaLogsHandler(batch_size=3, start_worker=False)
-        add_to_queue(handler._queue, make_items(3))
+        handler = VictoriaLogsHandler(start_worker=False)
+        add_to_queue(handler._buffer, make_items(3))
         # when
         handler.flush()
         # then
-        self.assertEqual(handler._queue.qsize(), 0)
+        self.assertEqual(handler._buffer.qsize(), 0)
         self.assertEqual(m.call_count, 1)
+
+    def test_should_requeue_when_send_failed(self, m: MagicMock):
+        # given
+        m.return_value = False
+        handler = VictoriaLogsHandler(start_worker=False)
+        add_to_queue(handler._buffer, make_items(3))
+        # when
+        handler.flush()
+        # then
+        self.assertEqual(handler._buffer.qsize(), 3)
+        self.assertEqual(m.call_count, 1)
+
+    def test_should_do_nothing_when_queue_empty(self, m: MagicMock):
+        # given
+        m.return_value = True
+        handler = VictoriaLogsHandler(start_worker=False)
+        # when
+        handler.flush()
+        # then
+        self.assertEqual(m.call_count, 0)
+
+    def test_should_send_logs_in_chunks(self, m: MagicMock):
+        # given
+        m.return_value = True
+        handler = VictoriaLogsHandler(chunk_size=3, start_worker=False)
+        add_to_queue(handler._buffer, make_items(4))
+        # when
+        handler.flush()
+        # then
+        self.assertEqual(handler._buffer.qsize(), 0)
+        self.assertEqual(m.call_count, 2)
+        self.assertEqual(len(m.call_args_list[0].kwargs["data"]), 3)
+        self.assertEqual(len(m.call_args_list[1].kwargs["data"]), 1)
 
 
 def add_to_queue(queue: queue.Queue, items):

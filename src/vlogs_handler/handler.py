@@ -28,12 +28,13 @@ class VictoriaLogsHandler(logging.Handler):
     """VictoriaLogsHandler dispatches log events to a VictoriaLogs server.
 
     Args:
-        batch_size: New logs are submitted immediately once a threshold is reached.
+        batch_size: New logs are submitted immediately once this threshold is reached.
         flush_interval: New logs are submitted every x seconds.
-        buffer_size: Maximum number of buffered logs.
-            If buffer_size <= 0, the size is unlimited.
+        buffer_size: Maximum number of logs the buffer can hold.
+            If buffer_size <= 0, the size is unlimited (not recommended).
             When the buffer is full any new logs will be discarded.
             100 000 logs approximately consume 100 MB of RAM in the buffer.
+        chunk_size: Maximum number of logs send per request to the log server.
         record_to_stream: function that returns the stream value for a record.
             The default will return the name of the top package.
         request_timeout: Timeout when sending a request to the vlogs server in seconds.
@@ -73,8 +74,9 @@ class VictoriaLogsHandler(logging.Handler):
 
     def __init__(
         self,
-        batch_size: int = 1_000,
+        batch_size: int = 125,
         buffer_size: int = 100_000,
+        chunk_size: int = 1_000,
         flush_interval: float = 5.0,
         record_to_stream: Optional[Callable[[logging.LogRecord], str]] = None,
         request_timeout: float = 3.0,
@@ -85,7 +87,10 @@ class VictoriaLogsHandler(logging.Handler):
         super().__init__()
 
         if batch_size < 1:
-            raise ValueError(f"batch_size must be >= 1 {batch_size}")
+            raise ValueError(f"batch_size must be >= 1: {batch_size}")
+
+        if chunk_size < 1:
+            raise ValueError(f"chunk_size must be >= 1: {chunk_size}")
 
         if flush_interval < 0:
             raise ValueError(f"flush_interval must be >= 0: {flush_interval}")
@@ -109,8 +114,9 @@ class VictoriaLogsHandler(logging.Handler):
         self.addFilter(_create_filter(name))
 
         self._batch_size = int(batch_size)
+        self._buffer = queue.Queue(int(buffer_size))
+        self._chunk_size = int(chunk_size)
         self._flush_interval = float(flush_interval)
-        self._queue = queue.Queue(int(buffer_size))
         self._record_to_stream = record_to_stream or _top_package_name
         self._request_timeout = float(request_timeout)
         self._shutdown_timeout = float(shutdown_timeout)
@@ -137,7 +143,7 @@ class VictoriaLogsHandler(logging.Handler):
             self.start()
 
     def close(self):
-        """Cleanup resources and flush the queue."""
+        """Cleanup resources and flush the buffer."""
         with self._lock:
             if self._worker_shutdown.is_set():
                 return  # run shutdown once only
@@ -154,10 +160,10 @@ class VictoriaLogsHandler(logging.Handler):
     def emit(self, record: logging.LogRecord) -> None:
         try:
             log_entry = self._format_log_record(record)
-            self._queue.put_nowait(log_entry)
+            self._buffer.put_nowait(log_entry)
 
         except queue.Full:
-            logger.error("Queue full. Discarding new log.")
+            logger.error("Buffer full. Discarding new log.")
             return
 
         except Exception:
@@ -171,30 +177,28 @@ class VictoriaLogsHandler(logging.Handler):
                 self._worker_run.set()
 
     def _format_log_record(self, record: logging.LogRecord) -> Dict[str, Any]:
-        entry = {
+        log = {
             "stream": self._record_to_stream(record),
             "timestamp": record.created,
-            "logger": record.name,
             "level": record.levelname,
-            "message": record.getMessage(),
+            "logger": record.name,
             "module": record.module,
             "function": record.funcName,
             "line_number": record.lineno,
-            "thread": record.thread,
-            "thread_name": record.threadName,
-            "process": record.process,
+            "message": record.getMessage(),
             "process_name": record.processName,
+            "process": record.process,
+            "thread_name": record.threadName,
+            "thread": record.thread,
         }
         if record.exc_info:
-            entry["exception_name"], entry["exception"] = _format_exception(
-                record.exc_info
-            )
+            log["exception_name"], log["exception"] = _format_exception(record.exc_info)
 
         for k, v in record.__dict__.items():
             if k not in self._STANDARD_ATTRS:
-                entry[k] = v
+                log[k] = v
 
-        return entry
+        return log
 
     def start(self):
         """Start the worker. Do nothing when the worker is already running."""
@@ -218,37 +222,44 @@ class VictoriaLogsHandler(logging.Handler):
         logger.debug("Worker stopped")
 
     def flush(self):
-        """Flush the queue and send all entries to the log server."""
-        entries: List[Dict[str, Any]] = []
-        while True:
+        """Flush the buffer and send all logs to the log server."""
+        failed: List[Dict[str, Any]] = []
+        done = False
+        while not done:
+            logs: List[Dict[str, Any]] = []
+            while len(logs) < self._chunk_size:
+                try:
+                    logs.append(self._buffer.get_nowait())
+                except queue.Empty:
+                    done = True
+                    break
+
+            if logs:
+                ok = request.post_ndjson(
+                    url=self._vlogs_url, data=logs, timeout=self._request_timeout
+                )
+                if not ok:
+                    failed += logs
+                    logger.warning("Logs failed to send to log server: %d", len(logs))
+                else:
+                    logger.debug("Logs submitted to log server: %d", len(logs))
+
+        if not failed:
+            return
+
+        n = 0
+        for log in failed:
             try:
-                entries.append(self._queue.get_nowait())
-            except queue.Empty:
+                self._buffer.put_nowait(log)
+                n += 1
+            except queue.Full:
+                logger.error(
+                    "Discarded %s logs after failed send because buffer is full",
+                    len(failed) - n,
+                )
                 break
 
-        if entries:
-            ok = request.post_ndjson(
-                url=self._vlogs_url, data=entries, timeout=self._request_timeout
-            )
-            if not ok:
-                n = 0
-                for entry in entries:
-                    try:
-                        self._queue.put_nowait(entry)
-                        n += 1
-                    except queue.Full:
-                        logger.error(
-                            "Re-queued %d entries after failed send. queue full. "
-                            "%s entries discarded",
-                            n,
-                            len(entries) - n,
-                        )
-                        break
-
-                logger.info("Re-queued entries after failed send: %d", n)
-                return
-
-            logger.debug("Entries submitted to log server: %d", len(entries))
+        logger.debug("Saved logs to buffer after failed send: %d", n)
 
 
 def _create_filter(name: str):
