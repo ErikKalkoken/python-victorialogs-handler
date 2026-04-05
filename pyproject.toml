@@ -17,7 +17,8 @@ classifiers = [
     "Topic :: System :: Logging",
 ]
 dependencies = ["orjson>3.10"]
-dynamic = ["version", "description"]
+description = "A log handler for VictoriaLogs."
+dynamic = ["version"]
 license = "MIT"
 license-files = ["LICENSE"]
 name = "victorialogs-handler"
@@ -25,7 +26,8 @@ readme = "README.md"
 requires-python = ">=3.10"
 
 [project.urls]
-Home = "https://github.com/ErikKalkoken/python-victorialogs-handler"
+source = "https://github.com/ErikKalkoken/python-victorialogs-handler"
+documentation = "https://erikkalkoken.github.io/python-victorialogs-handler"
 
 [project.optional-dependencies]
 test = ["coverage"]

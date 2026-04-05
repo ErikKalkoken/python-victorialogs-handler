@@ -1,4 +1,7 @@
-"""A log handler for VictoriaLogs."""
+"""A log handler for VictoriaLogs.
+
+.. include:: technical.md
+"""
 
 from .handler import VictoriaLogsHandler  # noqa: F401
 

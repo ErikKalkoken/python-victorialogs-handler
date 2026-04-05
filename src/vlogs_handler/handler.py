@@ -2,7 +2,9 @@
 
 import io
 import logging
+import os
 import queue
+import sys
 import threading
 import traceback
 import urllib.parse
@@ -53,6 +55,8 @@ class VictoriaLogsHandler(logging.Handler):
             If buffer_size <= 0, the size is unlimited (not recommended).
             When the buffer is full any new logs will be discarded.
             100 000 logs consume approx. 80-100 MB of RAM.
+            Tip: The buffer should be large enough to hold incoming logs
+            while the log server is down for regular maintenance.
         chunk_size: Maximum number of logs send per request to the log server.
         record_to_stream: A function that returns the value for the `stream`field
             for a log record. The default will return the name of the top package.
@@ -148,8 +152,19 @@ class VictoriaLogsHandler(logging.Handler):
             self._worker_thread.join(timeout=self._flush_interval)
 
         self.flush()
+
         if (n := self._buffer.qsize()) > 0:
-            logger.error("Discarded %d logs during shutdown.", n)
+            logger.error(
+                "Failed to transfer %d logs during shutdown. Writing them to stderr.", n
+            )
+            stderr = sys.stderr.fileno()
+            while True:
+                try:
+                    log = self._buffer.get_nowait()
+                except queue.Full:
+                    break
+
+                os.write(stderr, log + b"\n")  # print log to stderr
 
         super().close()
 
@@ -298,4 +313,6 @@ def _top_package_name(record: logging.LogRecord) -> str:
     if len(s) > 1:
         return s[0]
 
+    return record.name
+    return record.name
     return record.name

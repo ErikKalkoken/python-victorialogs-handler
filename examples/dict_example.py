@@ -6,7 +6,6 @@ Note that this script assumes that there is a vlogs server running
 on the same system at the default URL.
 """
 
-import atexit
 import logging
 import logging.config
 
@@ -41,8 +40,6 @@ LOGGING_CONFIG = {
 # Apply the configuration
 logging.config.dictConfig(LOGGING_CONFIG)
 
-# Make sure to flush logs before exiting
-atexit.register(logging.shutdown)
 
 # Create and use the logger
 logger = logging.getLogger(__name__)

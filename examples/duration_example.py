@@ -9,7 +9,6 @@ Note that this script assumes that there is a vlogs server running
 on the same system at the default URL.
 """
 
-import atexit
 import datetime as dt
 import logging
 import time
@@ -34,12 +33,10 @@ vlogs_logger.addHandler(console_handler)
 
 # Add a vlogs handler
 stream = dt.datetime.now(tz=dt.UTC).strftime("%Y%m%dT%H%M%S")  # Unique ID for grouping
-vlogs_handler = VictoriaLogsHandler(batch_size=50, record_to_stream=lambda _: stream)
+vlogs_handler = VictoriaLogsHandler(batch_size=30, record_to_stream=lambda _: stream)
 vlogs_handler.setLevel(logging.DEBUG)
 logger.addHandler(vlogs_handler)
 
-# Make sure to flush logs before exiting
-atexit.register(logging.shutdown)
 
 i = 0
 while True:
