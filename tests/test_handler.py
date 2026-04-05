@@ -3,6 +3,7 @@ import logging
 import queue
 import threading
 import unittest
+from typing import List
 from unittest.mock import MagicMock, patch
 
 import orjson
@@ -10,6 +11,18 @@ import orjson
 from vlogs_handler import VictoriaLogsHandler, handler
 
 MODULE_PATH = "vlogs_handler.handler"
+
+
+def add_to_queue(queue: queue.Queue, items: List[bytes]):
+    for it in items:
+        queue.put_nowait(it)
+
+
+def make_items(n: int) -> List[bytes]:
+    objs = []
+    for i in range(1, n + 1):
+        objs.append(b'{"name": f"item#{i}"}')
+    return objs
 
 
 class TestVictoriaLogsHandler_Init(unittest.TestCase):
@@ -305,16 +318,34 @@ class TestVictoriaLogsHandler_Flush(unittest.TestCase):
         self.assertEqual(len(m.call_args_list[1].kwargs["objs"]), 1)
 
 
-def add_to_queue(queue: queue.Queue, items):
-    for it in items:
-        queue.put_nowait(it)
+@patch(MODULE_PATH + ".os.write")
+@patch(MODULE_PATH + ".VictoriaLogsHandler.flush")
+class TestVictoriaLogsHandler_Close(unittest.TestCase):
+    def test_should_not_output_anything_when_buffer_empty(
+        self, flush: MagicMock, os_write: MagicMock
+    ):
+        # given
+        handler = VictoriaLogsHandler(start_worker=False)
+        # when
+        handler.close()
+        # then
+        self.assertEqual(flush.call_count, 1)
+        self.assertEqual(os_write.call_count, 0)
 
-
-def make_items(n: int) -> list:
-    objs = []
-    for i in range(1, n + 1):
-        objs.append({"name": f"item#{i}"})
-    return objs
+    def test_should_output_failed_logs_to_stderr(
+        self, flush: MagicMock, os_write: MagicMock
+    ):
+        # given
+        handler = VictoriaLogsHandler(start_worker=False)
+        log = b"alpha-log"
+        handler._buffer.put_nowait(log)
+        # when
+        handler.close()
+        # then
+        self.assertEqual(handler._buffer.qsize(), 0)
+        self.assertEqual(flush.call_count, 1)
+        self.assertEqual(os_write.call_count, 1)
+        self.assertIn(log, os_write.call_args.args[1])
 
 
 class TestTopPackageName(unittest.TestCase):

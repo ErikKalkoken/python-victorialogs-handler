@@ -151,22 +151,34 @@ class VictoriaLogsHandler(logging.Handler):
             self._worker_run.set()
             self._worker_thread.join(timeout=self._flush_interval)
 
-        self.flush()
+        try:
+            self.flush()
+        except Exception:
+            pass
 
-        if (n := self._buffer.qsize()) > 0:
-            logger.error(
-                "Failed to transfer %d logs during shutdown. Writing them to stderr.", n
-            )
+        try:
+            count = 0
             stderr = sys.stderr.fileno()
             while True:
                 try:
                     log = self._buffer.get_nowait()
-                except queue.Full:
+                except queue.Empty:
                     break
 
-                os.write(stderr, log + b"\n")  # print log to stderr
+                try:
+                    os.write(stderr, log + b"\n")  # print log to stderr
+                except Exception:
+                    break  # abort when writing to stderr no longer possible
 
-        super().close()
+                count += 1
+
+            if count > 0:
+                print(
+                    f"Dumped {count} remaining logs to stderr during shutdown.",
+                    file=sys.stderr,
+                )
+        finally:
+            super().close()
 
     def emit(self, record: logging.LogRecord) -> None:
         """@private"""

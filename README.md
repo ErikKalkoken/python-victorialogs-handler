@@ -16,7 +16,7 @@ A Python log handler for VictoriaLogs.
 - [Description](#description)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
-- [Technical Documentation](#technical-documentation)
+- [Documentation](#documentation)
 
 ## Description
 
@@ -26,7 +26,7 @@ A Python log handler for VictoriaLogs.
 - Hybrid trigger: Log processing is triggered by a ticker and/or when a size threshold is reached.
 - Batching: Multiple logs are combined into one request to the log server to minimize the amount of requests.
 - Complete logs: All fields of a log record are transmitted including exceptions and `extra` fields.
-- Highly customizable: The handler's behavior is highly customizable (see also [Technical Documentation](#technical-documentation))
+- Highly customizable: The handler's behavior is highly customizable (see also [Documentation](#documentation))
 
 ## Installation
 
@@ -64,6 +64,6 @@ logger.info("This is an info message")
 
 Please see the directory `/examples` for additional examples on how to use the handler.
 
-## Technical documentation
+## Documentation
 
-For a description of how the handler works and the API documentation - which also includes the configuration options - please see the [Technical documentation](https://erikkalkoken.github.io/python-victorialogs-handler/).
+For a description of how the handler works and the API documentation - which also includes the configuration options - please see the [Documentation](https://erikkalkoken.github.io/python-victorialogs-handler/).
