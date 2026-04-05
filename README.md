@@ -1,6 +1,6 @@
 # victorialogs-handler
 
-A Python log handler for VictoriaLogs.
+A high-performance Python log handler for VictoriaLogs.
 
 [![release](https://img.shields.io/pypi/v/python-victorialogs-handler?label=release)](https://pypi.org/project/python-victorialogs-handler/)
 [![python](https://img.shields.io/pypi/pyversions/python-victorialogs-handler)](https://pypi.org/project/python-victorialogs-handler/)
@@ -9,14 +9,7 @@ A Python log handler for VictoriaLogs.
 [![license](https://img.shields.io/badge/license-MIT-green)](https://gitlab.com/ErikKalkoken/python-victorialogs-handler/-/blob/master/LICENSE)
 
 > [!IMPORTANT]
-> STATUS: In development. The API is not yet stable.
-
-## Content
-
-- [Description](#description)
-- [Installation](#installation)
-- [Quick Start](#quick-start)
-- [Documentation](#documentation)
+> STATUS: In development. The API may still change.
 
 ## Description
 
@@ -66,4 +59,4 @@ Please see the directory `/examples` for additional examples on how to use the h
 
 ## Documentation
 
-For a description of how the handler works and the API documentation - which also includes the configuration options - please see the [Documentation](https://erikkalkoken.github.io/python-victorialogs-handler/).
+The full documentation can be found here: [Documentation](https://erikkalkoken.github.io/python-victorialogs-handler/).
