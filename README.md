@@ -113,7 +113,7 @@ In addition any custom `extras' fields will be added as they are encountered.
 
 ### VictoriaLogs special fields
 
-VictoriaLogs handles three fields in a special:
+VictoriaLogs handles three fields in a special way:
 
 - `_msg`: The logged message. This is a mandatory field and is mapped to `message`.
 - `_time`: The timestamp of the log event. This field and is mapped to `timestamp`.

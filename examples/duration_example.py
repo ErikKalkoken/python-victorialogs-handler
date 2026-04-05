@@ -1,13 +1,18 @@
 """
-This script demonstrates how to setup and use a logger with the vlogs handler.
-It also sets up a console handler and a logger for the vlogs handler itself.
+This script can be used to explore the behavior of the vlogs handler
+during execution of a longer running script or application.
+
+It sets up a logger with output to console and vlogs
+and configures the vlogs logger to output to the console as well.
 
 Note that this script assumes that there is a vlogs server running
 on the same system at the default URL.
 """
 
 import atexit
+import datetime as dt
 import logging
+import time
 
 from vlogs_handler import VictoriaLogsHandler
 
@@ -28,18 +33,16 @@ vlogs_logger.setLevel(logging.DEBUG)
 vlogs_logger.addHandler(console_handler)
 
 # Add a vlogs handler
-vlogs_handler = VictoriaLogsHandler()
+stream = dt.datetime.now(tz=dt.UTC).strftime("%Y%m%dT%H%M%S")  # Unique ID for grouping
+vlogs_handler = VictoriaLogsHandler(batch_size=50, record_to_stream=lambda _: stream)
 vlogs_handler.setLevel(logging.DEBUG)
 logger.addHandler(vlogs_handler)
 
 # Make sure to flush logs before exiting
 atexit.register(logging.shutdown)
 
-# Log example with structured data
-logger.info("basic_example: This is an info message", extra={"user_id": 42})
-
-# Log example with an exception
-try:
-    _ = 1 / 0
-except Exception:
-    logger.exception("basic_example: This is an exception")
+i = 0
+while True:
+    i += 1
+    logger.info("%d: This is an info message", i)
+    time.sleep(0.1)

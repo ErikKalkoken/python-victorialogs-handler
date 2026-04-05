@@ -1,3 +1,11 @@
+"""
+This script demonstrates how to setup and use a logger with the vlogs handler
+with the dict config method.
+
+Note that this script assumes that there is a vlogs server running
+on the same system at the default URL.
+"""
+
 import atexit
 import logging
 import logging.config

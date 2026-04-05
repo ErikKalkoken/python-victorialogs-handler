@@ -1,4 +1,4 @@
-"""Module handler provides the implementation of the vlogs handler."""
+"""A module that provides the implementation of the vlogs logging handler."""
 
 import io
 import logging
@@ -44,8 +44,7 @@ _STANDARD_ATTRS: frozenset[str] = frozenset(
 
 
 class VictoriaLogsHandler(logging.Handler):
-    """VictoriaLogsHandler is a standard log handler
-    that dispatches log events to a VictoriaLogs server.
+    """A handler class which dispatches logging records to a VictoriaLogs server.
 
     Args:
         batch_size: New logs are submitted immediately once this threshold is reached.
@@ -149,27 +148,18 @@ class VictoriaLogsHandler(logging.Handler):
             self._worker_thread.join(timeout=self._flush_interval)
 
         self.flush()
+        if (n := self._buffer.qsize()) > 0:
+            logger.error("Discarded %d logs during shutdown.", n)
+
         super().close()
 
     def emit(self, record: logging.LogRecord) -> None:
         """@private"""
         try:
             log = _serialize_log_to_json(record, self._record_to_stream)
-
-        except Exception:
-            logger.exception("serializing log: %s", record)
-            self.handleError(record)
-            return
-
-        try:
             self._buffer.put_nowait(log)
 
-        except queue.Full:
-            logger.error("Buffer full. Discarding new log: %s", log)
-            return
-
         except Exception:
-            logger.exception("Emitting record: %s", log)
             self.handleError(record)
             return
 
@@ -218,13 +208,9 @@ class VictoriaLogsHandler(logging.Handler):
                 )
                 if not ok:
                     failed += logs
-                    logger.warning(
-                        "Failed to transmit logs to log server: %d", len(logs)
-                    )
+                    logger.warning("Failed transmitting %d logs to server", len(logs))
                 else:
-                    logger.debug(
-                        "Log transmitted successfully to log server: %d", len(logs)
-                    )
+                    logger.debug("Completed transmitting %s logs to server", len(logs))
 
         if not failed:
             return
@@ -241,7 +227,7 @@ class VictoriaLogsHandler(logging.Handler):
                 )
                 break
 
-        logger.debug("Saved logs to buffer after failed send: %d", n)
+        logger.debug("Saved %d logs to buffer after failed send", n)
 
 
 def _serialize_log_to_json(

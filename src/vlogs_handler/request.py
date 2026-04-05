@@ -1,4 +1,4 @@
-"""Module request provides the functionality to send HTTP requests."""
+"""A module that provides the functionality to send HTTP requests."""
 
 import logging
 import urllib.error
@@ -42,7 +42,7 @@ def post_ndjson(
 
     except urllib.error.HTTPError as ex:
         body = ex.read(4096).decode("utf-8")
-        logger.exception(
+        logger.error(
             "HTTP Error: %s",
             ex.reason,
             extra={
@@ -54,7 +54,7 @@ def post_ndjson(
         )
 
     except urllib.error.URLError as ex:
-        logger.exception(
+        logger.error(
             "URL Error: %s",
             ex.reason,
             extra={"url": url, "reason": ex.reason},
