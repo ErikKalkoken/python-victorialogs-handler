@@ -49,33 +49,43 @@ class VictoriaLogsHandler(logging.Handler):
     """A handler class which dispatches logging records to a VictoriaLogs server.
 
     Args:
-        batch_size: New logs are submitted immediately once this threshold is reached.
-        flush_interval: New logs are submitted every x seconds.
+        batch_size: Triggers flushing the buffer once this threshold is reached.
         buffer_size: Maximum number of logs the buffer can hold.
             If buffer_size <= 0, the size is unlimited (not recommended).
             When the buffer is full any new logs will be discarded.
-            100 000 logs consume approx. 80-100 MB of RAM.
-            Tip: The buffer should be large enough to hold incoming logs
-            while the log server is down for regular maintenance.
+            50 000 logs consume approx. 40-50 MB of RAM.
+            Note that each Python process the handler is running on has it's own buffer.
+            Tip: At a minimum the combined buffer of all handlers should be
+            large enough to hold incoming logs while the last chunk
+            is being transferred to the log server.
+            Ideally, it should be able to hold incoming logs while
+            the vlogs server is down for regular maintenance.
         chunk_size: Maximum number of logs send per request to the log server.
+        flush_interval: Triggers flushing the buffer at an interval of x seconds.
         record_to_stream: A function that returns the value for the `stream`field
             for a log record. The default will return the name of the top package.
         request_timeout: Timeout when sending a request to the vlogs server in seconds.
+        shutdown_timeout: Timeout when waiting for the worker
+            to flush the buffer during shutdown.
         start_worker: Whether to start the worker at initialization.
             Alternatively, the worker can be started later by calling `start()`.
-        shutdown_timeout: Timeout when waiting for the worker to shut down.
         url: URL of the vlogs server, e.g. `"http://localhost:9428"`
+
+    Raises:
+        ValueError: If the validation of an argument fails.
+        RuntimeError: If the handler is not started in a module.
     """
 
     def __init__(
         self,
+        *,
         batch_size: int = 125,
-        buffer_size: int = 100_000,
+        buffer_size: int = 50_000,
         chunk_size: int = 1_000,
         flush_interval: float = 5.0,
         record_to_stream: Optional[Callable[[logging.LogRecord], str]] = None,
         request_timeout: float = 3.0,
-        shutdown_timeout: float = 2.0,
+        shutdown_timeout: float = 4.0,
         start_worker: bool = True,
         url: str = "http://localhost:9428",
     ):

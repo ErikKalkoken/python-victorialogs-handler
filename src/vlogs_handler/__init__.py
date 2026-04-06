@@ -11,6 +11,6 @@ This is the documentation for the VictoriaLogs Handler.
 from .handler import VictoriaLogsHandler  # noqa: F401
 
 __title__ = "VictoriaLogs Handler"
-__version__ = "0.1.0a1"
+__version__ = "0.1.0a2"
 
 __all__ = ["VictoriaLogsHandler"]

@@ -32,7 +32,7 @@ class TestVictoriaLogsHandler_Init(unittest.TestCase):
         self.assertEqual(handler._chunk_size, 1000)
         self.assertEqual(handler._flush_interval, 5.0)
         self.assertEqual(handler._request_timeout, 3.0)
-        self.assertEqual(handler._shutdown_timeout, 2.0)
+        self.assertEqual(handler._shutdown_timeout, 4.0)
         self.assertEqual(
             handler._vlogs_url,
             "http://localhost:9428/insert/jsonline"
